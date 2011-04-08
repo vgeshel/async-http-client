@@ -153,6 +153,17 @@ public class NettyAsyncHttpProvider extends SimpleChannelUpstreamHandler impleme
                     }
                     return removed;
                 }
+                
+                @Override
+                public boolean add(Channel channel) {
+                  boolean added = super.add(channel);
+                  
+                  if (added && trackConnections) {
+                    maxConnections.incrementAndGet();
+                  }
+                  
+                  return added;
+                }
             };
 
     private final ConnectionsPool<String, Channel> connectionsPool;
@@ -816,10 +827,6 @@ public class NettyAsyncHttpProvider extends SimpleChannelUpstreamHandler impleme
 
         if (useSSl) {
             constructSSLPipeline(c);
-        }
-
-        if (trackConnections) {
-            maxConnections.incrementAndGet();
         }
 
         ChannelFuture channelFuture;
