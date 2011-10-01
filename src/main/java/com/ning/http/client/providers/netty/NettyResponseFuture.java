@@ -68,7 +68,7 @@ public final class NettyResponseFuture<V> extends AbstractListenableFuture<V> {
     private HttpResponse httpResponse;
     private final AtomicReference<ExecutionException> exEx = new AtomicReference<ExecutionException>();
     private final AtomicInteger redirectCount = new AtomicInteger();
-    private Future<?> reaperFuture;
+    private volatile Future<?> reaperFuture;
     private final AtomicBoolean inAuth = new AtomicBoolean(false);
     private final AtomicBoolean statusReceived = new AtomicBoolean(false);
     private final AtomicLong touch = new AtomicLong(System.currentTimeMillis());
@@ -82,6 +82,7 @@ public final class NettyResponseFuture<V> extends AbstractListenableFuture<V> {
     private boolean writeHeaders;
     private boolean writeBody;
     private final AtomicBoolean throwableCalled = new AtomicBoolean(false);
+    private boolean allowConnect = false;
 
     public NettyResponseFuture(URI uri,
                                Request request,
@@ -139,6 +140,8 @@ public final class NettyResponseFuture<V> extends AbstractListenableFuture<V> {
      */
     /* @Override */
     public boolean cancel(boolean force) {
+        cancelReaper();
+
         if (isCancelled.get()) return false;
 
         try {
@@ -154,10 +157,9 @@ public final class NettyResponseFuture<V> extends AbstractListenableFuture<V> {
                 logger.warn("cancel", t);
             }
         }
-        if (reaperFuture != null) reaperFuture.cancel(true);
         latch.countDown();
         isCancelled.set(true);
-        super.done();        
+        super.done();
         return true;
     }
 
@@ -178,7 +180,14 @@ public final class NettyResponseFuture<V> extends AbstractListenableFuture<V> {
         try {
             return get(responseTimeoutInMs, TimeUnit.MILLISECONDS);
         } catch (TimeoutException e) {
+            cancelReaper();
             throw new ExecutionException(e);
+        }
+    }
+
+    void cancelReaper() {
+        if (reaperFuture != null) {
+            reaperFuture.cancel(true);
         }
     }
 
@@ -207,7 +216,8 @@ public final class NettyResponseFuture<V> extends AbstractListenableFuture<V> {
                     } catch (Throwable t) {
                         logger.debug("asyncHandler.onThrowable", t);
                     } finally {
-                        throw te;
+                        cancelReaper();
+                        throw new ExecutionException(te);
                     }
                 }
             }
@@ -240,6 +250,7 @@ public final class NettyResponseFuture<V> extends AbstractListenableFuture<V> {
                     } catch (Throwable t) {
                         logger.debug("asyncHandler.onThrowable", t);
                     } finally {
+                        cancelReaper();
                         throw new RuntimeException(ex);
                     }
                 }
@@ -251,10 +262,11 @@ public final class NettyResponseFuture<V> extends AbstractListenableFuture<V> {
 
     public final void done(Callable callable) {
         try {
+            cancelReaper();
+
             if (exEx.get() != null) {
                 return;
             }
-            if (reaperFuture != null) reaperFuture.cancel(true);
             getContent();
             isDone.set(true);
             if (callable != null) {
@@ -275,9 +287,7 @@ public final class NettyResponseFuture<V> extends AbstractListenableFuture<V> {
     }
 
     public final void abort(final Throwable t) {
-        if (reaperFuture != null && !reaperFuture.isCancelled() && !reaperFuture.isDone()) {
-            reaperFuture.cancel(true);
-        }
+        cancelReaper();
 
         if (isDone.get() || isCancelled.get()) return;
 
@@ -291,8 +301,8 @@ public final class NettyResponseFuture<V> extends AbstractListenableFuture<V> {
                 isCancelled.set(true);
             }
         }
-        latch.countDown();        
-        super.done();        
+        latch.countDown();
+        super.done();
     }
 
     public void content(V v) {
@@ -336,9 +346,7 @@ public final class NettyResponseFuture<V> extends AbstractListenableFuture<V> {
     }
 
     protected void setReaperFuture(Future<?> reaperFuture) {
-        if (this.reaperFuture != null) {
-            this.reaperFuture.cancel(true);
-        }
+        cancelReaper();
         this.reaperFuture = reaperFuture;
     }
 
@@ -398,16 +406,28 @@ public final class NettyResponseFuture<V> extends AbstractListenableFuture<V> {
         this.channel = channel;
     }
 
+    public void setReuseChannel(boolean reuseChannel) {
+        this.reuseChannel = reuseChannel;
+    }
+
+    public boolean isConnectAllowed() {
+        return allowConnect;
+    }
+
+    public void setConnectAllowed(boolean allowConnect) {
+        this.allowConnect = allowConnect;
+    }
+
     protected void attachChannel(Channel channel, boolean reuseChannel) {
         this.channel = channel;
         this.reuseChannel = reuseChannel;
     }
 
-    protected Channel channel(){
+    protected Channel channel() {
         return channel;
     }
 
-    protected boolean reuseChannel(){
+    protected boolean reuseChannel() {
         return reuseChannel;
     }
 
@@ -421,7 +441,6 @@ public final class NettyResponseFuture<V> extends AbstractListenableFuture<V> {
     public void setRequest(Request request) {
         this.request = request;
     }
-
 
     /**
      * Return true if the {@link Future} cannot be recovered. There is some scenario where a connection can be

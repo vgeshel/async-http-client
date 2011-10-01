@@ -23,7 +23,6 @@ import com.ning.http.util.AsyncHttpProviderUtils;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.UnsupportedEncodingException;
 import java.net.MalformedURLException;
 import java.net.URI;
 import java.util.ArrayList;
@@ -35,7 +34,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 
 public class JDKResponse implements Response {
-    private final static String DEFAULT_CHARSET = "ISO-8859-1";        
+    private final static String DEFAULT_CHARSET = "ISO-8859-1";
     private final static String HEADERS_NOT_COMPUTED = "Response's headers hasn't been computed by your AsyncHandler.";
 
     private final URI uri;
@@ -75,6 +74,11 @@ public class JDKResponse implements Response {
         return getResponseBody(DEFAULT_CHARSET);
     }
 
+    /* @Override */
+    public byte[] getResponseBodyAsBytes() throws IOException {
+        return AsyncHttpProviderUtils.contentToByte(bodyParts);
+    }
+
     public String getResponseBody(String charset) throws IOException {
         String contentType = getContentType();
         if (contentType != null && charset == null) {
@@ -86,22 +90,12 @@ public class JDKResponse implements Response {
         }
 
         if (!contentComputed.get()) {
-            contentToString(charset);
+            content = AsyncHttpProviderUtils.contentToString(bodyParts, charset);
         }
-        return content;
-    }
-
-    String contentToString(String charset) throws UnsupportedEncodingException {
-        StringBuilder b = new StringBuilder();
-        for (HttpResponseBodyPart bp : bodyParts) {
-            b.append(new String(bp.getBodyPartBytes(), charset));
-        }
-        content = b.toString();
         return content;
     }
 
     /* @Override */
-
     public InputStream getResponseBodyAsStream() throws IOException {
         if (contentComputed.get()) {
             return new ByteArrayInputStream(content.getBytes(DEFAULT_CHARSET));
@@ -129,7 +123,7 @@ public class JDKResponse implements Response {
             computeLength(parts);
         }
 
-        private void computeLength(HttpResponseBodyPart[] parts){
+        private void computeLength(HttpResponseBodyPart[] parts) {
             if (available == 0) {
                 for (HttpResponseBodyPart p : parts) {
                     available += p.getBodyPartBytes().length;
@@ -175,7 +169,7 @@ public class JDKResponse implements Response {
         }
 
         if (!contentComputed.get()) {
-            contentToString(charset == null ? DEFAULT_CHARSET : charset);
+            content = AsyncHttpProviderUtils.contentToString(bodyParts, charset == null ? DEFAULT_CHARSET : charset);
         }
 
         return content.length() <= maxLength ? content : content.substring(0, maxLength);

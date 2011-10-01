@@ -26,7 +26,7 @@ import java.util.List;
 /**
  * Customized {@link Response} which add support for getting the response's body as an XML document (@link WebDavResponse#getBodyAsXML}
  */
-public class WebDavResponse implements Response{
+public class WebDavResponse implements Response {
 
     private final Response response;
     private final Document document;
@@ -42,6 +42,11 @@ public class WebDavResponse implements Response{
 
     public String getStatusText() {
         return response.getStatusText();
+    }
+
+    /* @Override */
+    public byte[] getResponseBodyAsBytes() throws IOException {
+        return response.getResponseBodyAsBytes();
     }
 
     public InputStream getResponseBodyAsStream() throws IOException {
@@ -89,7 +94,7 @@ public class WebDavResponse implements Response{
     }
 
     public List<Cookie> getCookies() {
-        return response.getCookies();  
+        return response.getCookies();
     }
 
     public boolean hasResponseStatus() {
@@ -104,7 +109,7 @@ public class WebDavResponse implements Response{
         return response.hasResponseBody();
     }
 
-    public Document getBodyAsXML(){
+    public Document getBodyAsXML() {
         return document;
     }
 }

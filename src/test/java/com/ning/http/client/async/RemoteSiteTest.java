@@ -15,28 +15,27 @@
  */
 package com.ning.http.client.async;
 
-import com.ning.http.client.AsyncCompletionHandler;
+import com.ning.http.client.AsyncHandler;
 import com.ning.http.client.AsyncHttpClient;
 import com.ning.http.client.AsyncHttpClientConfig;
+import com.ning.http.client.HttpResponseBodyPart;
+import com.ning.http.client.HttpResponseHeaders;
+import com.ning.http.client.HttpResponseStatus;
 import com.ning.http.client.Request;
 import com.ning.http.client.RequestBuilder;
 import com.ning.http.client.Response;
 import com.ning.http.util.AsyncHttpProviderUtils;
 import org.testng.Assert;
-import org.testng.annotations.AfterClass;
-import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
-import java.io.IOException;
 import java.io.InputStream;
 import java.net.URLEncoder;
-import java.util.concurrent.BrokenBarrierException;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.TimeUnit;
 
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertNotNull;
+import static org.testng.AssertJUnit.assertTrue;
 
 /**
  * Unit tests for remote site.
@@ -46,109 +45,69 @@ import static org.testng.Assert.assertNotNull;
  * @author Martin Schurrer
  */
 public abstract class RemoteSiteTest extends AbstractBasicTest{
-    private AsyncHttpClient c;
-    private CyclicBarrier b;
-    private AsyncCompletionHandler<Response> h;
-    private Throwable t;
 
     public static final String URL = "http://google.com?q=";
     public static final String REQUEST_PARAM = "github github \n" +
             "github";
-
-    @BeforeClass
-    public void before() {
-        b = new CyclicBarrier(2);
-        c = new AsyncHttpClient(new AsyncHttpClientConfig.Builder().setRequestTimeoutInMs(10000).build());
-        t = null;
-        h = new AsyncCompletionHandler<Response>() {
-            public void onThrowable(Throwable t) {
-                try {
-                    RemoteSiteTest.this.t = t;
-                }
-                finally {
-                    try {
-                        b.await();
-                    } catch (InterruptedException e) {
-                        e.printStackTrace();
-                    } catch (BrokenBarrierException e) {
-                        e.printStackTrace();
-                    }
-                }
-            }
-
-            public Response onCompleted(Response response) throws Exception {
-                try {
-                    return response;
-                } finally {
-                    try {
-                        b.await();
-                    } catch (InterruptedException e) {
-                        e.printStackTrace();
-                    } catch (BrokenBarrierException e) {
-                        e.printStackTrace();
-                    }
-                }
-            }
-        };
-    }
-
-    @AfterClass
-    public void checkThrowable() {
-        if (c != null)
-            c.close();
-
-        if (t != null) {
-            t.printStackTrace();
-            Assert.fail("timeout?!");
-        }
-    }
-
+    
     @Test(groups = {"online", "default_provider"})
-    public void testGoogleCom() throws IOException, BrokenBarrierException, InterruptedException {
+    public void testGoogleCom() throws Throwable {
+        AsyncHttpClient c = getAsyncHttpClient(new AsyncHttpClientConfig.Builder().setRequestTimeoutInMs(10000).build());
         // Works
-        c.prepareGet("http://www.google.com/").execute(h);
-        b.await();
+        Response response = c.prepareGet("http://www.google.com/").execute().get(10,TimeUnit.SECONDS);
+        assertNotNull(response);
     }
 
     @Test(groups = {"online", "default_provider"})
-    public void testMailGoogleCom() throws IOException, BrokenBarrierException, InterruptedException {
-        c.prepareGet("http://mail.google.com/").execute(h);
-        b.await();
+    public void testMailGoogleCom() throws Throwable {
+        AsyncHttpClient c = getAsyncHttpClient(new AsyncHttpClientConfig.Builder().setRequestTimeoutInMs(10000).build());
+        
+        Response response = c.prepareGet("http://mail.google.com/").execute().get(10,TimeUnit.SECONDS);
+        assertNotNull(response);
+        assertEquals(response.getStatusCode(), 200);
     }
 
     @Test(groups = {"online", "default_provider"})
-    public void testMicrosoftCom() throws IOException, BrokenBarrierException, InterruptedException {
+    public void testMicrosoftCom() throws Throwable {
+        AsyncHttpClient c = getAsyncHttpClient(new AsyncHttpClientConfig.Builder().setRequestTimeoutInMs(10000).build());
+        
         // Works
-        c.prepareGet("http://microsoft.com/").execute(h);
-        b.await();
+        Response response = c.prepareGet("http://microsoft.com/").execute().get(10,TimeUnit.SECONDS);
+        assertNotNull(response);
+        assertEquals(response.getStatusCode(), 301);
     }
 
     @Test(groups = {"online", "default_provider"})
-    public void testWwwMicrosoftCom() throws IOException, BrokenBarrierException, InterruptedException {
-        c.prepareGet("http://www.microsoft.com/").execute(h);
-        b.await();
+    public void testWwwMicrosoftCom() throws Throwable {
+        AsyncHttpClient c = getAsyncHttpClient(new AsyncHttpClientConfig.Builder().setRequestTimeoutInMs(10000).build());
+        
+        Response response = c.prepareGet("http://www.microsoft.com/").execute().get(10,TimeUnit.SECONDS);
+        assertNotNull(response);
+        assertEquals(response.getStatusCode(), 302);
     }
 
     @Test(groups = {"online", "default_provider"})
-    public void testUpdateMicrosoftCom() throws IOException, BrokenBarrierException, InterruptedException {
-        c.prepareGet("http://update.microsoft.com/").execute(h);
-        b.await();
+    public void testUpdateMicrosoftCom() throws Throwable {
+        AsyncHttpClient c = getAsyncHttpClient(new AsyncHttpClientConfig.Builder().setRequestTimeoutInMs(10000).build());
+        
+        Response response = c.prepareGet("http://update.microsoft.com/").execute().get(10,TimeUnit.SECONDS);
+        assertNotNull(response);
+        assertEquals(response.getStatusCode(), 302);
     }
 
     @Test(groups = {"online", "default_provider"})
-    public void testGoogleComWithTimeout() throws IOException, BrokenBarrierException, InterruptedException {
+    public void testGoogleComWithTimeout() throws Throwable {
+        AsyncHttpClient c = getAsyncHttpClient(new AsyncHttpClientConfig.Builder().setRequestTimeoutInMs(10000).build());
+        
         // Works
-        c.prepareGet("http://google.com/").execute(h);
-        b.await();
-        Thread.sleep(20000); // Wait for timeout
-        if (t != null) {
-            Assert.fail("timeout?!");
-        }
+        Response response = c.prepareGet("http://google.com/").execute().get(10,TimeUnit.SECONDS);
+        assertNotNull(response);
+        assertEquals(response.getStatusCode(), 301);
     }
 
     @Test(groups = {"online", "default_provider"})
     public void asyncStatusHEADContentLenghtTest() throws Throwable {
-        AsyncHttpClient p = new AsyncHttpClient(
+        AsyncHttpClient p = getAsyncHttpClient(
                 new AsyncHttpClientConfig.Builder().setFollowRedirects(true).build());
 
         final CountDownLatch l = new CountDownLatch(1);
@@ -171,7 +130,7 @@ public abstract class RemoteSiteTest extends AbstractBasicTest{
         p.close();
     }
 
-    @Test(groups = {"online", "default_provider"})
+    @Test(groups = {"online", "default_provider"}, enabled = false)
     public void invalidStreamTest2() throws Throwable {
         AsyncHttpClientConfig config = new AsyncHttpClientConfig.Builder()
                 .setRequestTimeoutInMs(10000)
@@ -180,7 +139,7 @@ public abstract class RemoteSiteTest extends AbstractBasicTest{
                 .setMaximumNumberOfRedirects(6)
                 .build();
 
-        AsyncHttpClient c = new AsyncHttpClient(config);
+        AsyncHttpClient c = getAsyncHttpClient(config);
         try {
             Response response = c.prepareGet("http://bit.ly/aUjTtG").execute().get();
             if (response != null) {
@@ -211,11 +170,109 @@ public abstract class RemoteSiteTest extends AbstractBasicTest{
 
     @Test(groups = {"online", "default_provider"})    
     public void testUrlRequestParametersEncoding() throws Throwable {
-        AsyncHttpClient client = new AsyncHttpClient();
+        AsyncHttpClient client = getAsyncHttpClient(null);
         String requestUrl2 = URL + URLEncoder.encode(REQUEST_PARAM, "UTF-8");
         log.info(String.format("Executing request [%s] ...", requestUrl2));
         Response response = client.prepareGet(requestUrl2).execute().get();
         Assert.assertEquals(response.getStatusCode(), 301);
+    }
+
+    /**
+     * See  https://issues.sonatype.org/browse/AHC-61
+     * @throws Throwable
+     */
+    @Test(groups = {"online", "default_provider"})
+    public void testAHC60() throws Throwable {
+        AsyncHttpClient client = getAsyncHttpClient(null);
+        Response response = client.prepareGet("http://www.meetup.com/stackoverflow/Mountain-View-CA/").execute().get();
+        Assert.assertEquals(response.getStatusCode(), 200);
+    }
+
+    @Test(groups = {"online", "default_provider"})
+    public void stripQueryStringTest() throws Throwable {
+
+        AsyncHttpClientConfig cg = new AsyncHttpClientConfig.Builder().setFollowRedirects(true).build();
+        AsyncHttpClient c = getAsyncHttpClient(cg);
+
+        Response response = c.prepareGet("http://www.freakonomics.com/?p=55846")
+                .execute().get();
+
+        assertNotNull(response);
+        assertEquals(response.getStatusCode(), 200);
+
+
+        c.close();
+    }
+
+    @Test(groups = {"online", "default_provider"})
+    public void stripQueryStringNegativeTest() throws Throwable {
+
+        AsyncHttpClientConfig cg = new AsyncHttpClientConfig.Builder()
+                .setRemoveQueryParamsOnRedirect(false).setFollowRedirects(true).build();
+        AsyncHttpClient c = getAsyncHttpClient(cg);
+
+        Response response = c.prepareGet("http://www.freakonomics.com/?p=55846")
+                .execute().get();
+
+        assertNotNull(response);
+        assertEquals(response.getStatusCode(), 301);
+
+
+        c.close();
+    }
+
+    @Test(groups = {"online", "default_provider"})
+    public void evilCoookieTest() throws Throwable {
+        AsyncHttpClient c = getAsyncHttpClient(null);
+
+        RequestBuilder builder2 = new RequestBuilder("GET");
+        builder2.setFollowRedirects(true);
+        builder2.setUrl("http://www.google.com/");
+        builder2.addHeader("Content-Type", "text/plain");
+        builder2.addCookie(new com.ning.http.client.Cookie(".google.com", "evilcookie", "test", "/", 10, false));
+        com.ning.http.client.Request request2 = builder2.build();
+        Response response = c.executeRequest(request2).get();
+
+        assertNotNull(response);
+        assertEquals(response.getStatusCode(), 200);
+        c.close();
+    }
+
+    @Test(groups = {"online", "default_provider"}, enabled = false)
+    public void testAHC62Com() throws Throwable {
+        AsyncHttpClient c = getAsyncHttpClient(new AsyncHttpClientConfig.Builder().setFollowRedirects(true).build());
+        // Works
+        Response response = c.prepareGet("http://api.crunchbase.com/v/1/financial-organization/kinsey-hills-group.js").execute(new AsyncHandler<Response>() {
+
+            private Response.ResponseBuilder builder = new Response.ResponseBuilder();
+
+            public void onThrowable(Throwable t) {
+                t.printStackTrace();
+            }
+
+            public STATE onBodyPartReceived(HttpResponseBodyPart bodyPart) throws Exception {
+                System.out.println(bodyPart.getBodyPartBytes().length);
+                builder.accumulate(bodyPart);
+
+                return STATE.CONTINUE;
+            }
+
+            public STATE onStatusReceived(HttpResponseStatus responseStatus) throws Exception {
+                builder.accumulate(responseStatus);
+                return STATE.CONTINUE;
+            }
+
+            public STATE onHeadersReceived(HttpResponseHeaders headers) throws Exception {
+                builder.accumulate(headers);
+                return STATE.CONTINUE;
+            }
+
+            public Response onCompleted() throws Exception {
+                return builder.build();
+            }
+        }).get(10, TimeUnit.SECONDS);
+        assertNotNull(response);
+        assertTrue(response.getResponseBody().length() >= 3870);
     }
 
 }

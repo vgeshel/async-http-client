@@ -18,7 +18,10 @@ package com.ning.http.client;
 import com.ning.http.client.filter.IOExceptionFilter;
 import com.ning.http.client.filter.RequestFilter;
 import com.ning.http.client.filter.ResponseFilter;
+import com.ning.http.util.AllowAllHostnameVerifier;
+import com.ning.http.util.ProxyUtils;
 
+import javax.net.ssl.HostnameVerifier;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLEngine;
 import java.security.GeneralSecurityException;
@@ -48,33 +51,39 @@ import java.util.concurrent.ThreadFactory;
  */
 public class AsyncHttpClientConfig {
 
-    private final static String ASYNC_CLIENT = AsyncHttpClientConfig.class.getName() + ".";
+    protected final static String ASYNC_CLIENT = AsyncHttpClientConfig.class.getName() + ".";
 
-    private final int maxTotalConnections;
-    private final int maxConnectionPerHost;
-    private final int connectionTimeOutInMs;
-    private final int idleConnectionInPoolTimeoutInMs;
-    private final int requestTimeoutInMs;
-    private final boolean redirectEnabled;
-    private final int maxDefaultRedirects;
-    private final boolean compressionEnabled;
-    private final String userAgent;
-    private final boolean allowPoolingConnection;
-    private final ScheduledExecutorService reaper;
-    private final ExecutorService applicationThreadPool;
-    private final ProxyServer proxyServer;
-    private final SSLContext sslContext;
-    private final SSLEngineFactory sslEngineFactory;
-    private final AsyncHttpProviderConfig<?, ?> providerConfig;
-    private final ConnectionsPool<?, ?> connectionsPool;
-    private final Realm realm;
-    private final List<RequestFilter> requestFilters;
-    private final List<ResponseFilter> responseFilters;
-    private final List<IOExceptionFilter> ioExceptionFilters;
-    private final int requestCompressionLevel;
-    private final int maxRequestRetry;
-    private final boolean allowSslConnectionPool;
-    private final boolean useRawUrl;
+    protected int maxTotalConnections;
+    protected int maxConnectionPerHost;
+    protected int connectionTimeOutInMs;
+    protected int idleConnectionInPoolTimeoutInMs;
+    protected int requestTimeoutInMs;
+    protected boolean redirectEnabled;
+    protected int maxDefaultRedirects;
+    protected boolean compressionEnabled;
+    protected String userAgent;
+    protected boolean allowPoolingConnection;
+    protected ScheduledExecutorService reaper;
+    protected ExecutorService applicationThreadPool;
+    protected ProxyServer proxyServer;
+    protected SSLContext sslContext;
+    protected SSLEngineFactory sslEngineFactory;
+    protected AsyncHttpProviderConfig<?, ?> providerConfig;
+    protected ConnectionsPool<?, ?> connectionsPool;
+    protected Realm realm;
+    protected List<RequestFilter> requestFilters;
+    protected List<ResponseFilter> responseFilters;
+    protected List<IOExceptionFilter> ioExceptionFilters;
+    protected int requestCompressionLevel;
+    protected int maxRequestRetry;
+    protected boolean allowSslConnectionPool;
+    protected boolean useRawUrl;
+    protected boolean removeQueryParamOnRedirect;
+    protected HostnameVerifier hostnameVerifier;
+    protected int ioThreadMultiplier;
+
+    protected AsyncHttpClientConfig() {
+    }
 
     private AsyncHttpClientConfig(int maxTotalConnections,
                                   int maxConnectionPerHost,
@@ -99,7 +108,10 @@ public class AsyncHttpClientConfig {
                                   int requestCompressionLevel,
                                   int maxRequestRetry,
                                   boolean allowSslConnectionCaching,
-                                  boolean useRawUrl) {
+                                  boolean useRawUrl,
+                                  boolean removeQueryParamOnRedirect,
+                                  HostnameVerifier hostnameVerifier,
+                                  int ioThreadMultiplier) {
 
         this.maxTotalConnections = maxTotalConnections;
         this.maxConnectionPerHost = maxConnectionPerHost;
@@ -123,6 +135,9 @@ public class AsyncHttpClientConfig {
         this.maxRequestRetry = maxRequestRetry;
         this.reaper = reaper;
         this.allowSslConnectionPool = allowSslConnectionCaching;
+        this.removeQueryParamOnRedirect = removeQueryParamOnRedirect;
+        this.hostnameVerifier = hostnameVerifier;
+        this.ioThreadMultiplier = ioThreadMultiplier;
 
         if (applicationThreadPool == null) {
             this.applicationThreadPool = Executors.newCachedThreadPool();
@@ -394,6 +409,39 @@ public class AsyncHttpClientConfig {
         return useRawUrl;
     }
 
+    /**
+     * Return true if the query parameters will be stripped from the request when a redirect is requested.
+     *
+     * @return true if the query parameters will be stripped from the request when a redirect is requested.
+     */
+    public boolean isRemoveQueryParamOnRedirect() {
+        return removeQueryParamOnRedirect;
+    }
+
+    /**
+     * Return true if one of the {@link java.util.concurrent.ExecutorService} has been shutdown.
+     *
+     * @return true if one of the {@link java.util.concurrent.ExecutorService} has been shutdown.
+     */
+    public boolean isClosed() {
+        return applicationThreadPool.isShutdown() || reaper.isShutdown();
+    }
+
+    /**
+     * Return the {@link HostnameVerifier}
+     *
+     * @return the {@link HostnameVerifier}
+     */
+    public HostnameVerifier getHostnameVerifier() {
+        return hostnameVerifier;
+    }
+
+    /**
+     * @return number to multiply by availableProcessors() that will determine # of NioWorkers to use
+     */
+    public int getIoThreadMultiplier() {
+        return ioThreadMultiplier;
+    }
 
     /**
      * Builder for an {@link AsyncHttpClient}
@@ -408,6 +456,7 @@ public class AsyncHttpClientConfig {
         private int maxDefaultRedirects = Integer.getInteger(ASYNC_CLIENT + "defaultMaxRedirects", 5);
         private boolean compressionEnabled = Boolean.getBoolean(ASYNC_CLIENT + "compressionEnabled");
         private String userAgent = System.getProperty(ASYNC_CLIENT + "userAgent", "NING/1.0");
+        private boolean useProxyProperties = Boolean.getBoolean(ASYNC_CLIENT + "useProxyProperties");
         private boolean allowPoolingConnection = true;
         private ScheduledExecutorService reaper = Executors.newScheduledThreadPool(Runtime.getRuntime().availableProcessors(), new ThreadFactory() {
             public Thread newThread(Runnable r) {
@@ -436,6 +485,9 @@ public class AsyncHttpClientConfig {
         private final List<IOExceptionFilter> ioExceptionFilters = new LinkedList<IOExceptionFilter>();
         private boolean allowSslConnectionPool = true;
         private boolean useRawUrl = false;
+        private boolean removeQueryParamOnRedirect = true;
+        private HostnameVerifier hostnameVerifier = new AllowAllHostnameVerifier();
+        private int ioThreadMultiplier = 2;
 
         public Builder() {
         }
@@ -782,7 +834,7 @@ public class AsyncHttpClientConfig {
          * Return true is if connections pooling is enabled.
          *
          * @param allowSslConnectionPool true if enabled
-         * @return true is if connections pooling is enabled.
+         * @return this
          */
         public Builder setAllowSslConnectionPool(boolean allowSslConnectionPool) {
             this.allowSslConnectionPool = allowSslConnectionPool;
@@ -794,10 +846,51 @@ public class AsyncHttpClientConfig {
          * useful for retrieving data from broken sites
          *
          * @param useRawUrl
-         * @return
+         * @return this
          */
         public Builder setUseRawUrl(boolean useRawUrl) {
             this.useRawUrl = useRawUrl;
+            return this;
+        }
+
+        /**
+         * Set to false if you don't want the query parameters removed when a redirect occurs.
+         *
+         * @param removeQueryParamOnRedirect
+         * @return this
+         */
+        public Builder setRemoveQueryParamsOnRedirect(boolean removeQueryParamOnRedirect) {
+            this.removeQueryParamOnRedirect = removeQueryParamOnRedirect;
+            return this;
+        }
+
+        /**
+         * Sets whether AHC should use the default http.proxy* system properties
+         * to obtain proxy information.
+         * <p/>
+         * If useProxyProperties is set to <code>true</code> but {@link #setProxyServer(ProxyServer)} was used
+         * to explicitly set a proxy server, the latter is preferred.
+         * <p/>
+         * See http://download.oracle.com/javase/1.4.2/docs/guide/net/properties.html
+         */
+        public Builder setUseProxyProperties(boolean useProxyProperties) {
+            this.useProxyProperties = useProxyProperties;
+            return this;
+        }
+
+        public Builder setIOThreadMultiplier(int multiplier) {
+            this.ioThreadMultiplier = multiplier;
+            return this;
+        }
+
+        /**
+         * Set the {@link HostnameVerifier}
+         *
+         * @param hostnameVerifier {@link HostnameVerifier}
+         * @return this
+         */
+        public Builder setHostnameVerifier(HostnameVerifier hostnameVerifier) {
+            this.hostnameVerifier = hostnameVerifier;
             return this;
         }
 
@@ -812,7 +905,6 @@ public class AsyncHttpClientConfig {
             connectionsPool = prototype.getConnectionsPool();
             defaultConnectionTimeOutInMs = prototype.getConnectionTimeoutInMs();
             defaultIdleConnectionInPoolTimeoutInMs = prototype.getIdleConnectionInPoolTimeoutInMs();
-            allowPoolingConnection = prototype.getKeepAlive();
             defaultMaxConnectionPerHost = prototype.getMaxConnectionPerHost();
             maxDefaultRedirects = prototype.getMaxRedirects();
             defaultMaxTotalConnections = prototype.getMaxTotalConnections();
@@ -822,13 +914,26 @@ public class AsyncHttpClientConfig {
             sslContext = prototype.getSSLContext();
             sslEngineFactory = prototype.getSSLEngineFactory();
             userAgent = prototype.getUserAgent();
+            redirectEnabled = prototype.isRedirectEnabled();
+            compressionEnabled = prototype.isCompressionEnabled();
+            reaper = prototype.reaper();
+            applicationThreadPool = prototype.executorService();
 
             requestFilters.clear();
             responseFilters.clear();
+            ioExceptionFilters.clear();
 
             requestFilters.addAll(prototype.getRequestFilters());
             responseFilters.addAll(prototype.getResponseFilters());
+            ioExceptionFilters.addAll(prototype.getIOExceptionFilters());
+
+            requestCompressionLevel = prototype.getRequestCompressionLevel();
             useRawUrl = prototype.isUseRawUrl();
+            ioThreadMultiplier = prototype.getIoThreadMultiplier();
+            maxRequestRetry = prototype.getMaxRequestRetry();
+            allowSslConnectionPool = prototype.getAllowPoolingConnection();
+            removeQueryParamOnRedirect = prototype.isRemoveQueryParamOnRedirect();
+            hostnameVerifier = prototype.getHostnameVerifier();
         }
 
         /**
@@ -837,6 +942,15 @@ public class AsyncHttpClientConfig {
          * @return an {@link AsyncHttpClientConfig}
          */
         public AsyncHttpClientConfig build() {
+
+            if (applicationThreadPool.isShutdown()) {
+                throw new IllegalStateException("ExecutorServices closed");
+            }
+
+            if (proxyServer == null && useProxyProperties) {
+                proxyServer = ProxyUtils.createProxy(System.getProperties());
+            }
+
             return new AsyncHttpClientConfig(defaultMaxTotalConnections,
                     defaultMaxConnectionPerHost,
                     defaultConnectionTimeOutInMs,
@@ -861,7 +975,10 @@ public class AsyncHttpClientConfig {
                     requestCompressionLevel,
                     maxRequestRetry,
                     allowSslConnectionPool,
-                    useRawUrl);
+                    useRawUrl,
+                    removeQueryParamOnRedirect,
+                    hostnameVerifier,
+                    ioThreadMultiplier);
         }
     }
 }

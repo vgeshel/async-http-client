@@ -27,6 +27,7 @@ import com.ning.http.multipart.PartSource;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.UnsupportedEncodingException;
 import java.net.URI;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
@@ -45,13 +46,28 @@ public class AsyncHttpProviderUtils {
 
     private final static String BODY_NOT_COMPUTED = "Response's body hasn't been computed by your AsyncHandler.";
 
-    private final static SimpleDateFormat[] RFC2822_LIKE_DATE_FORMATS =
-            {
-                    new SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss z", Locale.US),
-                    new SimpleDateFormat("EEE, dd-MMM-yyyy HH:mm:ss z", Locale.US),
-                    new SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss Z", Locale.US),
-                    new SimpleDateFormat("EEE, dd-MMM-yyyy HH:mm:ss Z", Locale.US),
-            };
+
+    protected final static ThreadLocal<SimpleDateFormat[]> simpleDateFormat = new ThreadLocal<SimpleDateFormat[]>() {
+        protected SimpleDateFormat[] initialValue() {
+
+            return new SimpleDateFormat[]
+                    {
+                            new SimpleDateFormat("EEE MMM d HH:mm:ss yyyy", Locale.US),  //ASCTIME
+                            new SimpleDateFormat("EEEE, dd-MMM-yy HH:mm:ss zzz", Locale.US), //RFC1036
+                            new SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss z", Locale.US),
+                            new SimpleDateFormat("EEE, dd-MMM-yyyy HH:mm:ss z", Locale.US),
+                            new SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss Z", Locale.US),
+                            new SimpleDateFormat("EEE, dd-MMM-yyyy HH:mm:ss Z", Locale.US),
+                            new SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss zzz", Locale.US) // RFC1123
+
+                    };
+        }
+    };
+
+    public final static SimpleDateFormat[] get() {
+        return simpleDateFormat.get();
+    }
+
 
     //space ' '
     static final byte SP = 32;
@@ -140,6 +156,10 @@ public class AsyncHttpProviderUtils {
         return uri;
     }
 
+    public static String getBaseUrl(String url) {
+        return getBaseUrl(createUri(url));
+    }
+
     public final static String getBaseUrl(URI uri) {
         String url = uri.getScheme() + "://" + uri.getAuthority();
         int port = uri.getPort();
@@ -160,6 +180,42 @@ public class AsyncHttpProviderUtils {
         return url;
     }
 
+    public final static String contentToString(Collection<HttpResponseBodyPart> bodyParts, String charset) throws UnsupportedEncodingException {
+        StringBuilder b = new StringBuilder();
+        for (HttpResponseBodyPart bp : bodyParts) {
+            b.append(new String(bp.getBodyPartBytes(), charset));
+        }
+        return b.toString();
+    }
+
+    public final static byte[] contentToByte(Collection<HttpResponseBodyPart> bodyParts) throws UnsupportedEncodingException {
+        if (bodyParts.size() == 1) {
+            return bodyParts.iterator().next().getBodyPartBytes();
+
+        } else {
+            int size = 0;
+            for (HttpResponseBodyPart body : bodyParts) {
+                size += body.getBodyPartBytes().length;
+            }
+            byte[] bytes = new byte[size];
+            int offset = 0;
+            for (HttpResponseBodyPart body : bodyParts) {
+                byte[] bodyBytes = body.getBodyPartBytes();
+                System.arraycopy(bodyBytes, 0, bytes, offset, bodyBytes.length);
+                offset += bodyBytes.length;
+            }
+
+            return bytes;
+        }
+    }
+
+    public final static String getHost(URI uri) {
+        String host = uri.getHost();
+        if (host == null) {
+            host = uri.getAuthority();
+        }
+        return host;
+    }
 
     public final static URI getRedirectUri(URI uri, String location) {
         URI newUri = uri.resolve(location);
@@ -199,7 +255,7 @@ public class AsyncHttpProviderUtils {
             } else if (part instanceof StringPart) {
                 parts[i] = new com.ning.http.multipart.StringPart(part.getName(),
                         ((StringPart) part).getValue(),
-                        "UTF-8");
+                        ((StringPart) part).getCharset());
             } else if (part instanceof FilePart) {
                 parts[i] = new com.ning.http.multipart.FilePart(part.getName(),
                         ((FilePart) part).getFile(),
@@ -385,7 +441,8 @@ public class AsyncHttpProviderUtils {
         String[] fields = value.split(";\\s*");
         String[] cookie = fields[0].split("=");
         String cookieName = cookie[0];
-        String cookieValue = cookie[1];
+        String cookieValue = (cookie.length == 1) ? null : cookie[1];
+
         int maxAge = -1;
         String path = null;
         String domain = null;
@@ -399,13 +456,13 @@ public class AsyncHttpProviderUtils {
                 secure = true;
             } else if (fields[j].indexOf('=') > 0) {
                 String[] f = fields[j].split("=");
+                if (f.length == 1) continue; // Add protection against null field values
 
                 // favor 'max-age' field over 'expires'
                 if (!maxAgeSet && "max-age".equalsIgnoreCase(f[0])) {
                     try {
-                        maxAge = Integer.valueOf(f[1]);
-                    }
-                    catch (NumberFormatException e1) {
+                        maxAge = Integer.valueOf(removeQuote(f[1]));
+                    } catch (NumberFormatException e1) {
                         // ignore failure to parse -> treat as session cookie
                         // invalidate a previously parsed expires-field
                         maxAge = -1;
@@ -414,13 +471,11 @@ public class AsyncHttpProviderUtils {
                 } else if (!maxAgeSet && !expiresSet && "expires".equalsIgnoreCase(f[0])) {
                     try {
                         maxAge = convertExpireField(f[1]);
-                    }
-                    catch (ParseException e) {
+                    } catch (Exception e) {
                         // original behavior, is this correct at all (expires field with max-age semantics)?
                         try {
                             maxAge = Integer.valueOf(f[1]);
-                        }
-                        catch (NumberFormatException e1) {
+                        } catch (NumberFormatException e1) {
                             // ignore failure to parse -> treat as session cookie
                         }
                     }
@@ -440,18 +495,31 @@ public class AsyncHttpProviderUtils {
         return new Cookie(domain, cookieName, cookieValue, path, maxAge, secure);
     }
 
-    private static int convertExpireField(String timestring) throws ParseException {
-        ParseException exception = null;
-        for (SimpleDateFormat sdf : RFC2822_LIKE_DATE_FORMATS) {
+    private static int convertExpireField(String timestring) throws Exception {
+        Exception exception = null;
+        for (SimpleDateFormat sdf : simpleDateFormat.get()) {
             try {
-                long expire = sdf.parse(timestring).getTime();
-                return (int) (expire - System.currentTimeMillis()) / 1000;
+                long expire = sdf.parse(removeQuote(timestring.trim())).getTime();
+                return (int) ((expire - System.currentTimeMillis()) / 1000);
             } catch (ParseException e) {
+                exception = e;
+            } catch (NumberFormatException e) {
                 exception = e;
             }
         }
 
         throw exception;
+    }
+
+    private final static String removeQuote(String s) {
+        if (s.startsWith("\"")) {
+            s = s.substring(1);
+        }
+
+        if (s.endsWith("\"")) {
+            s = s.substring(0, s.length() - 1);
+        }
+        return s;
     }
 
     public static void checkBodyParts(int statusCode, Collection<HttpResponseBodyPart> bodyParts) {

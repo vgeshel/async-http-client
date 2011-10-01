@@ -24,28 +24,29 @@ public abstract class HttpResponseHeaders extends HttpContent {
 
     private final boolean traillingHeaders;
 
-    public HttpResponseHeaders(URI uri, AsyncHttpProvider<?> provider) {
+    public HttpResponseHeaders(URI uri, AsyncHttpProvider provider) {
         super(uri, provider);
         this.traillingHeaders = false;
     }
 
-    public HttpResponseHeaders(URI uri, AsyncHttpProvider<?> provider, boolean traillingHeaders) {
+    public HttpResponseHeaders(URI uri, AsyncHttpProvider provider, boolean traillingHeaders) {
         super(uri, provider);
         this.traillingHeaders = traillingHeaders;
-
     }
 
     /**
      * Return the HTTP header
+     *
      * @return an {@link FluentCaseInsensitiveStringsMap}
      */
     abstract public FluentCaseInsensitiveStringsMap getHeaders();
 
     /**
      * Return true is headers has been received after the response body.
+     *
      * @return true is headers has been received after the response body.
      */
     public boolean isTraillingHeadersReceived() {
-       return traillingHeaders;
+        return traillingHeaders;
     }
 }

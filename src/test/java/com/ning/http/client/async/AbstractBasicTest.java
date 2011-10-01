@@ -19,7 +19,6 @@ import com.ning.http.client.AsyncCompletionHandler;
 import com.ning.http.client.AsyncHandler;
 import com.ning.http.client.AsyncHttpClient;
 import com.ning.http.client.AsyncHttpClientConfig;
-import com.ning.http.client.AsyncHttpProvider;
 import com.ning.http.client.HttpResponseBodyPart;
 import com.ning.http.client.HttpResponseHeaders;
 import com.ning.http.client.HttpResponseStatus;
@@ -71,7 +70,7 @@ public abstract class AbstractBasicTest {
             if (request.getMethod().equalsIgnoreCase("OPTIONS")) {
                 httpResponse.addHeader("Allow","GET,HEAD,POST,OPTIONS,TRACE");
             };
-            
+
             Enumeration<?> e = httpRequest.getHeaderNames();
             String param;
             while (e.hasMoreElements()) {
@@ -122,15 +121,18 @@ public abstract class AbstractBasicTest {
                 httpResponse.getOutputStream().write(requestBody.toString().getBytes());
             }
 
-            int size = 10 * 1024;
+            int size = 16384;
             if (httpRequest.getContentLength() > 0) {
                 size = httpRequest.getContentLength();
             }
             byte[] bytes = new byte[size];
             if (bytes.length > 0) {
-                int read = httpRequest.getInputStream().read(bytes);
-                if (read > 0) {
-                    httpResponse.getOutputStream().write(bytes, 0, read);
+                int read = 0;
+                while (read > -1) {
+                    read = httpRequest.getInputStream().read(bytes);
+                    if (read > 0) {
+                        httpResponse.getOutputStream().write(bytes, 0, read);
+                    }
                 }
             }
 
@@ -141,7 +143,7 @@ public abstract class AbstractBasicTest {
     }
 
     @AfterClass(alwaysRun = true)
-    public void tearDownGlobal() throws InterruptedException, Exception {
+    public void tearDownGlobal() throws Exception {
         server.stop();
     }
 

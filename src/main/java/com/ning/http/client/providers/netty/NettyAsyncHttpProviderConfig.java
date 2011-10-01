@@ -48,13 +48,18 @@ public class NettyAsyncHttpProviderConfig implements AsyncHttpProviderConfig<Str
     public final static String DISABLE_NESTED_REQUEST = "disableNestedRequest";
 
     /**
+     * Allow configuring the Netty's boss executor service.
+     */
+    public final static String BOSS_EXECUTOR_SERVICE = "bossExecutorService";
+
+    /**
      * See {@link java.net.Socket#setReuseAddress(boolean)}
      */
     public final static String REUSE_ADDRESS = "reuseAddress";
 
     private final ConcurrentHashMap<String, Object> properties = new ConcurrentHashMap<String, Object>();
 
-    public NettyAsyncHttpProviderConfig(){
+    public NettyAsyncHttpProviderConfig() {
         properties.put(REUSE_ADDRESS, "false");
     }
 

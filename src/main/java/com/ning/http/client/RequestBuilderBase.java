@@ -23,7 +23,7 @@ import org.slf4j.LoggerFactory;
 import java.io.File;
 import java.io.InputStream;
 import java.io.UnsupportedEncodingException;
-import java.net.MalformedURLException;
+import java.net.InetAddress;
 import java.net.URI;
 import java.net.URLDecoder;
 import java.util.ArrayList;
@@ -45,6 +45,7 @@ public abstract class RequestBuilderBase<T extends RequestBuilderBase<T>> {
     private static final class RequestImpl implements Request {
         private String method;
         private String url = null;
+        private InetAddress address = null;
         private FluentCaseInsensitiveStringsMap headers = new FluentCaseInsensitiveStringsMap();
         private Collection<Cookie> cookies = new ArrayList<Cookie>();
         private byte[] byteData;
@@ -64,15 +65,18 @@ public abstract class RequestBuilderBase<T extends RequestBuilderBase<T>> {
         private PerRequestConfig perRequestConfig;
         private long rangeOffset = 0;
         public String charset;
+        private boolean useRawUrl = false;
 
-        public RequestImpl() {
+        public RequestImpl(boolean useRawUrl) {
+            this.useRawUrl = useRawUrl;
         }
 
         public RequestImpl(Request prototype) {
             if (prototype != null) {
                 this.method = prototype.getMethod();
                 int pos = prototype.getUrl().indexOf("?");
-                this.url = pos > 0 ? prototype.getUrl().substring(0,pos) : prototype.getUrl();
+                this.url = pos > 0 ? prototype.getUrl().substring(0, pos) : prototype.getUrl();
+                this.address = prototype.getInetAddress();
                 this.headers = new FluentCaseInsensitiveStringsMap(prototype.getHeaders());
                 this.cookies = new ArrayList<Cookie>(prototype.getCookies());
                 this.byteData = prototype.getByteData();
@@ -92,6 +96,7 @@ public abstract class RequestBuilderBase<T extends RequestBuilderBase<T>> {
                 this.perRequestConfig = prototype.getPerRequestConfig();
                 this.rangeOffset = prototype.getRangeOffset();
                 this.charset = prototype.getBodyEncoding();
+                this.useRawUrl = prototype.isUseRawUrl();
             }
         }
 
@@ -109,6 +114,10 @@ public abstract class RequestBuilderBase<T extends RequestBuilderBase<T>> {
 
         public String getUrl() {
             return toUrl(true);
+        }
+
+        public InetAddress getInetAddress() {
+            return address;
         }
 
         private String toUrl(boolean encode) {
@@ -131,12 +140,12 @@ public abstract class RequestBuilderBase<T extends RequestBuilderBase<T>> {
                 if (!url.substring(8).contains("/")) { // no other "/" than http[s]:// -> http://localhost:1234
                     builder.append("/");
                 }
-                builder.append("?"); 
+                builder.append("?");
 
-                for (Iterator<Entry<String, List<String>>> i = queryParams.iterator(); i.hasNext();) {
+                for (Iterator<Entry<String, List<String>>> i = queryParams.iterator(); i.hasNext(); ) {
                     Map.Entry<String, List<String>> param = i.next();
                     String name = param.getKey();
-                    for (Iterator<String> j = param.getValue().iterator(); j.hasNext();) {
+                    for (Iterator<String> j = param.getValue().iterator(); j.hasNext(); ) {
                         String value = j.next();
                         if (encode) {
                             UTF8UrlEncoder.appendEncoded(builder, name);
@@ -207,8 +216,8 @@ public abstract class RequestBuilderBase<T extends RequestBuilderBase<T>> {
         /* @Override */
 
         /**
-         * @deprecated
          * @return
+         * @deprecated
          */
         public long getLength() {
             return length;
@@ -280,25 +289,37 @@ public abstract class RequestBuilderBase<T extends RequestBuilderBase<T>> {
 
             return sb.toString();
         }
+
+        public boolean isUseRawUrl() {
+            return useRawUrl;
+        }
     }
 
     private final Class<T> derived;
     protected final RequestImpl request;
+    protected boolean useRawUrl = false;
 
-    protected RequestBuilderBase(Class<T> derived, String method) {
+    protected RequestBuilderBase(Class<T> derived, String method, boolean rawUrls) {
         this.derived = derived;
-        request = new RequestImpl();
+        request = new RequestImpl(rawUrls);
         request.method = method;
+        this.useRawUrl = rawUrls;
     }
 
     protected RequestBuilderBase(Class<T> derived, Request prototype) {
         this.derived = derived;
         request = new RequestImpl(prototype);
+        this.useRawUrl = prototype.isUseRawUrl();
     }
-    
+
     public T setUrl(String url) {
         request.url = buildUrl(url);
         return derived.cast(this);
+    }
+
+    public T setInetAddress(InetAddress address) {
+    	request.address = address;
+    	return derived.cast(this);
     }
 
     private String buildUrl(String url) {
@@ -313,20 +334,35 @@ public abstract class RequestBuilderBase<T extends RequestBuilderBase<T>> {
         if (uri.getAuthority() != null) {
             buildedUrl.append(uri.getAuthority());
         }
-        buildedUrl.append(uri.getRawPath());
+        if (uri.getRawPath() != null) {
+            buildedUrl.append(uri.getRawPath());
+        } else {
+            // AHC-96
+            // Let's try to derive it
+            if (url.indexOf("://") == -1) {
+                String s = buildedUrl.toString();
+                url = s + url.substring(uri.getScheme().length() + 1);
+                return buildUrl(url);
+            } else {
+                throw new IllegalArgumentException("Invalid url " + uri.toString());
+            }
+        }
 
         if (uri.getRawQuery() != null && !uri.getRawQuery().equals("")) {
             String[] queries = uri.getRawQuery().split("&");
             int pos;
-            for( String query : queries) {
+            for (String query : queries) {
                 pos = query.indexOf("=");
                 if (pos <= 0) {
                     addQueryParameter(query, null);
-                }else{
+                } else {
                     try {
-                        addQueryParameter(URLDecoder.decode(query.substring(0, pos), "UTF-8") , URLDecoder.decode(query.substring(pos +1), "UTF-8"));
-                    }
-                    catch ( UnsupportedEncodingException e ) {
+                        if (this.useRawUrl) {
+                            addQueryParameter(query.substring(0, pos), query.substring(pos + 1));
+                        } else {
+                            addQueryParameter(URLDecoder.decode(query.substring(0, pos), "UTF-8"), URLDecoder.decode(query.substring(pos + 1), "UTF-8"));
+                        }
+                    } catch (UnsupportedEncodingException e) {
                         throw new RuntimeException(e);
                     }
                 }
@@ -351,7 +387,7 @@ public abstract class RequestBuilderBase<T extends RequestBuilderBase<T>> {
             logger.warn("Value was null, set to \"\"");
             value = "";
         }
-                
+
         request.headers.add(name, value);
         return derived.cast(this);
     }
@@ -368,7 +404,7 @@ public abstract class RequestBuilderBase<T extends RequestBuilderBase<T>> {
 
     public T setContentLength(int length) {
         request.length = length;
-        return derived.cast(this);        
+        return derived.cast(this);
     }
 
     public T addCookie(Cookie cookie) {
@@ -391,13 +427,21 @@ public abstract class RequestBuilderBase<T extends RequestBuilderBase<T>> {
     private void resetMultipartData() {
         request.parts = null;
     }
-        
+
+    private void checkIfBodyAllowed() {
+        if ("GET".equals(request.method) || "HEAD".equals(request.method)) {
+            throw new IllegalArgumentException("Can NOT set Body on HTTP Request Method GET nor HEAD.");
+        }
+    }
+
     public T setBody(File file) {
+        checkIfBodyAllowed();
         request.file = file;
         return derived.cast(this);
     }
 
     public T setBody(byte[] data) throws IllegalArgumentException {
+        checkIfBodyAllowed();
         resetParameters();
         resetNonMultipartData();
         resetMultipartData();
@@ -406,6 +450,7 @@ public abstract class RequestBuilderBase<T extends RequestBuilderBase<T>> {
     }
 
     public T setBody(String data) throws IllegalArgumentException {
+        checkIfBodyAllowed();
         resetParameters();
         resetNonMultipartData();
         resetMultipartData();
@@ -414,6 +459,7 @@ public abstract class RequestBuilderBase<T extends RequestBuilderBase<T>> {
     }
 
     public T setBody(InputStream stream) throws IllegalArgumentException {
+        checkIfBodyAllowed();
         resetParameters();
         resetNonMultipartData();
         resetMultipartData();
@@ -426,6 +472,7 @@ public abstract class RequestBuilderBase<T extends RequestBuilderBase<T>> {
     }
 
     public T setBody(EntityWriter dataWriter, long length) throws IllegalArgumentException {
+        checkIfBodyAllowed();
         resetParameters();
         resetNonMultipartData();
         resetMultipartData();
@@ -435,6 +482,7 @@ public abstract class RequestBuilderBase<T extends RequestBuilderBase<T>> {
     }
 
     public T setBody(BodyGenerator bodyGenerator) {
+        checkIfBodyAllowed();
         request.bodyGenerator = bodyGenerator;
         return derived.cast(this);
     }
@@ -444,6 +492,15 @@ public abstract class RequestBuilderBase<T extends RequestBuilderBase<T>> {
             request.queryParams = new FluentStringsMap();
         }
         request.queryParams.add(name, value);
+        return derived.cast(this);
+    }
+
+    public T setQueryParameters(FluentStringsMap parameters) {
+        if (parameters == null) {
+            request.queryParams = null;
+        } else {
+            request.queryParams = new FluentStringsMap(parameters);
+        }
         return derived.cast(this);
     }
 
@@ -524,8 +581,7 @@ public abstract class RequestBuilderBase<T extends RequestBuilderBase<T>> {
             if (contentLength != null) {
                 try {
                     request.length = Long.parseLong(contentLength);
-                }
-                catch (NumberFormatException e) {
+                } catch (NumberFormatException e) {
                     // NoOp -- we wdn't specify length so it will be chunked?
                 }
             }
@@ -534,12 +590,32 @@ public abstract class RequestBuilderBase<T extends RequestBuilderBase<T>> {
     }
 
     private boolean allowBody(String method) {
-        if ( method.equalsIgnoreCase("GET") || method.equalsIgnoreCase("OPTIONS")
-                    && method.equalsIgnoreCase("TRACE")
-                    && method.equalsIgnoreCase("HEAD")) {
+        if (method.equalsIgnoreCase("GET") || method.equalsIgnoreCase("OPTIONS")
+                && method.equalsIgnoreCase("TRACE")
+                && method.equalsIgnoreCase("HEAD")) {
             return false;
         } else {
             return true;
         }
+    }
+
+    public T addOrReplaceCookie(Cookie cookie) {
+        String cookieKey = cookie.getName();
+        boolean replace = false;
+        int index = 0;
+        for (Cookie c : request.cookies) {
+            if (c.getName().equals(cookieKey)) {
+                replace = true;
+                break;
+            }
+
+            index++;
+        }
+        if (replace) {
+            ((ArrayList<Cookie>) request.cookies).set(index, cookie);
+        } else {
+            request.cookies.add(cookie);
+        }
+        return derived.cast(this);
     }
 }

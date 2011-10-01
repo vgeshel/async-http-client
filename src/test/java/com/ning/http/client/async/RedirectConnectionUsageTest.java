@@ -17,6 +17,7 @@ package com.ning.http.client.async;
 
 import com.ning.http.client.AsyncHttpClient;
 import com.ning.http.client.AsyncHttpClientConfig;
+import com.ning.http.client.AsyncHttpProviderConfig;
 import com.ning.http.client.ListenableFuture;
 import com.ning.http.client.RequestBuilder;
 import com.ning.http.client.Response;
@@ -36,7 +37,6 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.io.OutputStream;
-import java.net.ServerSocket;
 import java.util.Date;
 
 import static org.testng.Assert.assertEquals;
@@ -55,10 +55,6 @@ public abstract class RedirectConnectionUsageTest extends AbstractBasicTest{
     private String BASE_URL;
 
     private String servletEndpointRedirectUrl;
-
-    private Server server;
-
-    private int port1;
 
     @BeforeClass
     public void setUp() throws Exception {
@@ -120,12 +116,7 @@ public abstract class RedirectConnectionUsageTest extends AbstractBasicTest{
             bc.setRequestTimeoutInMs(1000);
             bc.setFollowRedirects(true);
 
-            NettyAsyncHttpProviderConfig config = new NettyAsyncHttpProviderConfig();
-            if (System.getProperty("blockingio") != null)
-                config.addProperty(NettyAsyncHttpProviderConfig.USE_BLOCKING_IO, "true");
-            //config.addProperty(NettyAsyncHttpProviderConfig.REUSE_ADDRESS, "true");
-            bc.setAsyncHttpClientProviderConfig(config);
-            c = new AsyncHttpClient(bc.build());
+            c = getAsyncHttpClient(bc.build());
 
             RequestBuilder builder = new RequestBuilder("GET");
             builder.setUrl(servletEndpointRedirectUrl);
@@ -156,6 +147,8 @@ public abstract class RedirectConnectionUsageTest extends AbstractBasicTest{
 
 
     }
+
+    protected abstract AsyncHttpProviderConfig getProviderConfig();
 
 
     class MockRedirectHttpServlet extends HttpServlet {

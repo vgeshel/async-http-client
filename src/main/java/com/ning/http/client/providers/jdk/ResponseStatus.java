@@ -26,13 +26,14 @@ public class ResponseStatus extends HttpResponseStatus {
 
     private final HttpURLConnection urlConnection;
 
-    public ResponseStatus(URI uri, HttpURLConnection urlConnection, AsyncHttpProvider<HttpURLConnection> provider) {
+    public ResponseStatus(URI uri, HttpURLConnection urlConnection, AsyncHttpProvider provider) {
         super(uri, provider);
         this.urlConnection = urlConnection;
     }
 
     /**
      * Return the response status code
+     *
      * @return the response status code
      */
     public int getStatusCode() {
@@ -45,6 +46,7 @@ public class ResponseStatus extends HttpResponseStatus {
 
     /**
      * Return the response status text
+     *
      * @return the response status text
      */
     public String getStatusText() {

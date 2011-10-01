@@ -104,6 +104,7 @@ public class ApacheResponseFuture<V> extends AbstractListenableFuture<V> {
     }
 
     public void abort(Throwable t) {
+        exception.set(t);
         if (innerFuture != null) {
             innerFuture.cancel(true);
         }
@@ -115,8 +116,6 @@ public class ApacheResponseFuture<V> extends AbstractListenableFuture<V> {
         if (reaperFuture != null) {
             reaperFuture.cancel(true);
         }
-
-        exception.set(t);
         if (!timedOut.get() && !cancelled.get()) {
             try {
                 asyncHandler.onThrowable(t);
@@ -124,7 +123,7 @@ public class ApacheResponseFuture<V> extends AbstractListenableFuture<V> {
                 logger.debug("asyncHandler.onThrowable", t2);
             }
         }
-        super.done();        
+        super.done();
     }
 
     public boolean cancel(boolean mayInterruptIfRunning) {
@@ -142,7 +141,7 @@ public class ApacheResponseFuture<V> extends AbstractListenableFuture<V> {
             super.done();
             return innerFuture.cancel(mayInterruptIfRunning);
         } else {
-            super.done();            
+            super.done();
             return false;
         }
     }
@@ -178,8 +177,11 @@ public class ApacheResponseFuture<V> extends AbstractListenableFuture<V> {
             if (!contentProcessed.get() && timeout != -1 && ((System.currentTimeMillis() - touch.get()) <= responseTimeoutInMs)) {
                 return get(timeout, unit);
             }
-            timedOut.set(true);
-            throw new TimeoutException(String.format("No response received after %s", responseTimeoutInMs));
+
+            if (exception.get() == null) {
+                timedOut.set(true);
+                throw new ExecutionException(new TimeoutException(String.format("No response received after %s", responseTimeoutInMs)));
+            }
         } catch (CancellationException ce) {
         }
 

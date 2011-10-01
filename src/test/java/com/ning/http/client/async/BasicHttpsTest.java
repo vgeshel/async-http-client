@@ -56,6 +56,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertNotNull;
+import static org.testng.Assert.assertTrue;
 
 public abstract class BasicHttpsTest extends AbstractBasicTest {
 
@@ -123,8 +124,8 @@ public abstract class BasicHttpsTest extends AbstractBasicTest {
             byte[] bytes = new byte[size];
             if (bytes.length > 0) {
                 //noinspection ResultOfMethodCallIgnored
-                httpRequest.getInputStream().read(bytes);
-                httpResponse.getOutputStream().write(bytes);
+                int read = httpRequest.getInputStream().read(bytes);
+                httpResponse.getOutputStream().write(bytes, 0, read);
             }
 
             httpResponse.setStatus(200);
@@ -205,7 +206,7 @@ public abstract class BasicHttpsTest extends AbstractBasicTest {
     @Test(groups = {"standalone", "default_provider"})
     public void zeroCopyPostTest() throws Throwable {
 
-        final AsyncHttpClient client = new AsyncHttpClient(new Builder().setSSLContext(createSSLContext()).build());
+        final AsyncHttpClient client = getAsyncHttpClient(new Builder().setSSLContext(createSSLContext()).build());
 
         ClassLoader cl = getClass().getClassLoader();
         // override system properties
@@ -221,7 +222,7 @@ public abstract class BasicHttpsTest extends AbstractBasicTest {
 
     @Test(groups = {"standalone", "default_provider"})
     public void multipleSSLRequestsTest() throws Throwable {
-        final AsyncHttpClient c = new AsyncHttpClient(new Builder().setSSLContext(createSSLContext()).build());
+        final AsyncHttpClient c = getAsyncHttpClient(new Builder().setSSLContext(createSSLContext()).build());
 
         String body = "hello there";
 
@@ -245,7 +246,7 @@ public abstract class BasicHttpsTest extends AbstractBasicTest {
 
     @Test(groups = {"standalone", "default_provider"})
     public void multipleSSLWithoutCacheTest() throws Throwable {
-        final AsyncHttpClient c = new AsyncHttpClient(new Builder().setSSLContext(createSSLContext()).setAllowSslConnectionPool(false).build());
+        final AsyncHttpClient c = getAsyncHttpClient(new Builder().setSSLContext(createSSLContext()).setAllowSslConnectionPool(false).build());
 
         String body = "hello there";
         c.preparePost(getTargetUrl())
@@ -269,7 +270,7 @@ public abstract class BasicHttpsTest extends AbstractBasicTest {
 
     @Test(groups = {"standalone", "default_provider"})
     public void reconnectsAfterFailedCertificationPath() throws Throwable {
-        final AsyncHttpClient c = new AsyncHttpClient(new Builder().setSSLContext(createSSLContext()).build());
+        final AsyncHttpClient c = getAsyncHttpClient(new Builder().setSSLContext(createSSLContext()).build());
 
         final String body = "hello there";
 
@@ -283,10 +284,13 @@ public abstract class BasicHttpsTest extends AbstractBasicTest {
                         .execute().get(TIMEOUT, TimeUnit.SECONDS);
             }
             catch (final ExecutionException e) {
-                assertEquals(e.getCause().getClass(), ConnectException.class);
-                assertNotNull(e.getCause());
-                assertEquals(e.getCause().getCause().getClass(), SSLHandshakeException.class);
-
+                Throwable cause = e.getCause();
+                if (cause instanceof ConnectException) {
+                    assertNotNull(cause.getCause());
+                    assertTrue(cause.getCause() instanceof SSLHandshakeException);
+                } else {
+                    assertTrue(cause instanceof SSLHandshakeException);
+                }
             }
 
             TRUST_SERVER_CERT.set(true);

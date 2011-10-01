@@ -80,7 +80,7 @@ public abstract class TransferListenerTest extends AbstractBasicTest {
 
     @Test(groups = {"standalone", "default_provider"})
     public void basicGetTest() throws Throwable {
-        AsyncHttpClient c = new AsyncHttpClient();
+        AsyncHttpClient c = getAsyncHttpClient(null);
 
         final AtomicReference<Throwable> throwable = new AtomicReference<Throwable>();
         final AtomicReference<FluentCaseInsensitiveStringsMap> hSent = new AtomicReference<FluentCaseInsensitiveStringsMap>();
@@ -133,7 +133,7 @@ public abstract class TransferListenerTest extends AbstractBasicTest {
 
     @Test(groups = {"standalone", "default_provider"})
     public void basicPutTest() throws Throwable {
-        AsyncHttpClient c = new AsyncHttpClient();
+        AsyncHttpClient c = getAsyncHttpClient(null);
 
         final AtomicReference<Throwable> throwable = new AtomicReference<Throwable>();
         final AtomicReference<FluentCaseInsensitiveStringsMap> hSent = new AtomicReference<FluentCaseInsensitiveStringsMap>();
@@ -193,7 +193,7 @@ public abstract class TransferListenerTest extends AbstractBasicTest {
 
     @Test(groups = {"standalone", "default_provider"})
     public void basicPutBodyTest() throws Throwable {
-        AsyncHttpClient c = new AsyncHttpClient();
+        AsyncHttpClient c = getAsyncHttpClient(null);
 
         final AtomicReference<Throwable> throwable = new AtomicReference<Throwable>();
         final AtomicReference<FluentCaseInsensitiveStringsMap> hSent = new AtomicReference<FluentCaseInsensitiveStringsMap>();
@@ -258,6 +258,7 @@ public abstract class TransferListenerTest extends AbstractBasicTest {
     public static File createTempFile(byte[] pattern, int repeat)
             throws IOException {
         TMP.mkdirs();
+        TMP.deleteOnExit();
         File tmpFile = File.createTempFile("tmpfile-", ".data", TMP);
         write(pattern, repeat, tmpFile);
 

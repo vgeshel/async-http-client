@@ -19,6 +19,7 @@ import com.ning.http.client.AsyncCompletionHandler;
 import com.ning.http.client.AsyncHttpClient;
 import com.ning.http.client.AsyncHttpClientConfig;
 import com.ning.http.client.AsyncHttpClientConfig.Builder;
+import com.ning.http.client.AsyncHttpClientConfigBean;
 import com.ning.http.client.AsyncHttpProviderConfig;
 import com.ning.http.client.Cookie;
 import com.ning.http.client.FluentCaseInsensitiveStringsMap;
@@ -39,6 +40,7 @@ import java.io.OutputStream;
 import java.net.ConnectException;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.nio.channels.UnresolvedAddressException;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashMap;
@@ -58,7 +60,6 @@ import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertNull;
 import static org.testng.Assert.assertTrue;
 import static org.testng.Assert.fail;
-import static org.testng.Assert.assertNotNull;
 
 
 public abstract class AsyncProvidersBasicTest extends AbstractBasicTest {
@@ -202,7 +203,6 @@ public abstract class AsyncProvidersBasicTest extends AbstractBasicTest {
                 return response;
             }
         }).get();
-
         if (!l.await(TIMEOUT, TimeUnit.SECONDS)) {
             Assert.fail("Timeout out");
         }
@@ -515,8 +515,8 @@ public abstract class AsyncProvidersBasicTest extends AbstractBasicTest {
 
         AsyncHttpClient c = getAsyncHttpClient(null);
         final CountDownLatch l = new CountDownLatch(1);
-        Response r = c.preparePost(getTargetUrl()).addHeader("X-ISO", "true").setBody("ŽŽŽŽŽŽ").execute().get();
-        assertEquals(r.getResponseBody().getBytes("ISO-8859-1"),"ŽŽŽŽŽŽ".getBytes("ISO-8859-1"));
+        Response r = c.preparePost(getTargetUrl()).addHeader("X-ISO", "true").setBody("\u017D\u017D\u017D\u017D\u017D\u017D").execute().get();
+        assertEquals(r.getResponseBody().getBytes("ISO-8859-1"),"\u017D\u017D\u017D\u017D\u017D\u017D".getBytes("ISO-8859-1"));
         c.close();
     }
     
@@ -554,6 +554,7 @@ public abstract class AsyncProvidersBasicTest extends AbstractBasicTest {
                 return response;
             }
         }).get();
+
         if (!l.await(TIMEOUT, TimeUnit.SECONDS)) {
             Assert.fail("Timeout out");
         }
@@ -810,7 +811,7 @@ public abstract class AsyncProvidersBasicTest extends AbstractBasicTest {
                 .setUrl(getTargetUrl())
                 .setHeaders(h)
                 .setParameters(m)
-                .setVirtualHost("localhost")
+                .setVirtualHost("localhost:" + port1)
                 .build();
 
         Response response = n.executeRequest(request, new AsyncCompletionHandlerAdapter()).get();
@@ -930,7 +931,11 @@ public abstract class AsyncProvidersBasicTest extends AbstractBasicTest {
             });
 
             future.get(10, TimeUnit.SECONDS);
-        } catch (TimeoutException ex) {
+        } catch (ExecutionException ex) {            
+            if (ex.getCause() != null && TimeoutException.class.isAssignableFrom(ex.getCause().getClass())) {
+                Assert.assertTrue(true);
+            }
+        } catch (TimeoutException te) {
             Assert.assertTrue(true);
         } catch (IllegalStateException ex) {
             Assert.assertTrue(false);
@@ -1098,8 +1103,13 @@ public abstract class AsyncProvidersBasicTest extends AbstractBasicTest {
         c.prepareGet("http://null.apache.org:9999/").execute(new AsyncCompletionHandlerAdapter() {
             /* @Override */
             public void onThrowable(Throwable t) {
-                assertEquals(t.getClass(), ConnectException.class);
-                l.countDown();
+                if (t != null) {
+                    if (t.getClass().equals(ConnectException.class)) {
+                        l.countDown();
+                    } else if (t.getClass().equals(UnresolvedAddressException.class)) {
+                        l.countDown();
+                    }
+                }
             }
         });
 
@@ -1393,8 +1403,7 @@ public abstract class AsyncProvidersBasicTest extends AbstractBasicTest {
 
     @Test(groups = {"online", "default_provider", "async"})
     public void asyncDoGetNestedTest() throws Throwable {
-        AsyncHttpProviderConfig<String, Object> pc = new NettyAsyncHttpProviderConfig();
-        final AsyncHttpClient client = getAsyncHttpClient(new Builder().setAsyncHttpClientProviderConfig(pc).build());
+        final AsyncHttpClient client = getAsyncHttpClient(new Builder().build());
 
         // Use a l in case the assert fail
         final CountDownLatch l = new CountDownLatch(2);
@@ -1478,15 +1487,10 @@ public abstract class AsyncProvidersBasicTest extends AbstractBasicTest {
         c.close();
     }
 
-    // TODO Netty only
     @Test(groups = {"online", "default_provider"})
     public void testAsyncHttpProviderConfig() throws Exception {
 
-        NettyAsyncHttpProviderConfig pc = new NettyAsyncHttpProviderConfig();
-        pc.addProperty("tcpNoDelay", true);
-
-        // Just make sure Netty still works.
-        final AsyncHttpClient c = getAsyncHttpClient(new Builder().setAsyncHttpClientProviderConfig(pc).build());
+        final AsyncHttpClient c = getAsyncHttpClient(new Builder().setAsyncHttpClientProviderConfig(getProviderConfig()).build());
         Response response = c.prepareGet("http://test.s3.amazonaws.com/").execute().get();
         if (response.getResponseBody() == null || response.getResponseBody().equals("")) {
             fail("No response Body");
@@ -1516,9 +1520,10 @@ public abstract class AsyncProvidersBasicTest extends AbstractBasicTest {
             }).get();
             Assert.fail();
         } catch (Throwable ex) {
-            System.out.println("EXPIRED: " + (System.currentTimeMillis() - t1));
+            final long elapsedTime = System.currentTimeMillis() - t1;
+            System.out.println("EXPIRED: " + (elapsedTime));
             Assert.assertNotNull(ex.getCause());
-            Assert.assertEquals(ex.getCause().getMessage(), "No response received after 10000");
+            Assert.assertTrue(elapsedTime >= 10000 && elapsedTime <= 25000);
         }
         c.close();
     }
@@ -1556,4 +1561,63 @@ public abstract class AsyncProvidersBasicTest extends AbstractBasicTest {
         c.close();
     }
 
+    @Test(groups = {"standalone", "default_provider"}, expectedExceptions = IllegalArgumentException.class)
+    public void getShouldNotAllowBody() throws IllegalArgumentException, IOException {
+        AsyncHttpClient c = getAsyncHttpClient(null);
+        AsyncHttpClient.BoundRequestBuilder builder = c.prepareGet(getTargetUrl());
+        builder.setBody("Boo!");
+        builder.execute();
+    }
+
+    @Test(groups = {"standalone", "default_provider"}, expectedExceptions = IllegalArgumentException.class)
+    public void headShouldNotAllowBody() throws IllegalArgumentException, IOException {
+        AsyncHttpClient c = getAsyncHttpClient(null);
+        AsyncHttpClient.BoundRequestBuilder builder = c.prepareHead(getTargetUrl());
+        builder.setBody("Boo!");
+        builder.execute();
+    }
+
+    protected String getBrokenTargetUrl() {
+        return String.format("http:127.0.0.1:%d/foo/test", port1);
+    }
+
+    @Test(groups = {"standalone", "default_provider"})
+    public void invalidUri() throws Exception {
+        AsyncHttpClient c = getAsyncHttpClient(null);
+        AsyncHttpClient.BoundRequestBuilder builder = c.prepareGet(getBrokenTargetUrl());
+        Response r = c.executeRequest(builder.build()).get();
+        assertEquals(200, r.getStatusCode());
+    }
+
+    @Test(groups = {"standalone", "default_provider"})
+    public void asyncHttpClientConfigBeanTest() throws Exception {
+        AsyncHttpClient c = getAsyncHttpClient(new AsyncHttpClientConfigBean().setUserAgent("test"));
+        AsyncHttpClient.BoundRequestBuilder builder = c.prepareGet(getTargetUrl());
+        Response r = c.executeRequest(builder.build()).get();
+        assertEquals(200, r.getStatusCode());
+    }
+
+    @Test(groups = {"default_provider", "async"})
+    public void bodyAsByteTest() throws Throwable {
+        final AsyncHttpClient client = getAsyncHttpClient(new Builder().build());
+        Response r = client.prepareGet(getTargetUrl()).execute().get();
+
+        assertEquals(r.getStatusCode(), 200);
+        assertEquals(r.getResponseBodyAsBytes(), new byte[]{});
+
+        client.close();
+    }
+
+    @Test(groups = {"default_provider", "async"})
+    public void mirrorByteTest() throws Throwable {
+        final AsyncHttpClient client = getAsyncHttpClient(new AsyncHttpClientConfig.Builder().build());
+        Response r = client.preparePost(getTargetUrl()).setBody("MIRROR").execute().get();
+
+        assertEquals(r.getStatusCode(), 200);
+        assertEquals(new String(r.getResponseBodyAsBytes(), "UTF-8"), "MIRROR");
+
+        client.close();
+    }
+
+    protected abstract AsyncHttpProviderConfig getProviderConfig();
 }

@@ -14,7 +14,6 @@ package com.ning.http.client.providers.apache;
 
 import com.ning.http.client.AsyncHttpProvider;
 import com.ning.http.client.HttpResponseBodyPart;
-import org.apache.commons.httpclient.HttpClient;
 
 import java.io.IOException;
 import java.io.OutputStream;
@@ -27,10 +26,13 @@ import java.nio.ByteBuffer;
 public class ApacheResponseBodyPart extends HttpResponseBodyPart {
 
     private final byte[] chunk;
+    private final boolean isLast;
+    private boolean closeConnection;
 
-    public ApacheResponseBodyPart(URI uri, byte[] chunk, AsyncHttpProvider<HttpClient> provider) {
+    public ApacheResponseBodyPart(URI uri, byte[] chunk, AsyncHttpProvider provider, boolean last) {
         super(uri, provider);
         this.chunk = chunk;
+        isLast = last;
     }
 
     /**
@@ -51,5 +53,29 @@ public class ApacheResponseBodyPart extends HttpResponseBodyPart {
     @Override
     public ByteBuffer getBodyByteBuffer() {
         return ByteBuffer.wrap(chunk);
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public boolean isLast() {
+        return isLast;
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public void markUnderlyingConnectionAsClosed() {
+        closeConnection = true;
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public boolean closeUnderlyingConnection() {
+        return closeConnection;
     }
 }

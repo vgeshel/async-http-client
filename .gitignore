@@ -16,3 +16,5 @@ nbproject
 target
 test-output
 /META-INF/MANIFEST.MF
+work
+atlassian-ide-plugin.xml

@@ -93,7 +93,7 @@ public abstract class Relative302Test extends AbstractBasicTest {
     public void redirected302Test() throws Throwable {
         isSet.getAndSet(false);
         AsyncHttpClientConfig cg = new AsyncHttpClientConfig.Builder().setFollowRedirects(true).build();
-        AsyncHttpClient c = new AsyncHttpClient(cg);
+        AsyncHttpClient c = getAsyncHttpClient(cg);
 
         // once
         Response response = c.prepareGet(getTargetUrl())
@@ -128,12 +128,11 @@ public abstract class Relative302Test extends AbstractBasicTest {
         return port;
     }
 
-    // TODO: Netty Only.
     @Test(groups = {"standalone", "default_provider"})
     public void redirected302InvalidTest() throws Throwable {
         isSet.getAndSet(false);
         AsyncHttpClientConfig cg = new AsyncHttpClientConfig.Builder().setFollowRedirects(true).build();
-        AsyncHttpClient c = new AsyncHttpClient(cg);
+        AsyncHttpClient c = getAsyncHttpClient(cg);
 
         // If the test hit a proxy, no ConnectException will be thrown and instead of 404 will be returned.
         try {
@@ -154,7 +153,7 @@ public abstract class Relative302Test extends AbstractBasicTest {
         isSet.getAndSet(false);
 
         AsyncHttpClientConfig cg = new AsyncHttpClientConfig.Builder().setFollowRedirects(true).build();
-        AsyncHttpClient c = new AsyncHttpClient(cg);
+        AsyncHttpClient c = getAsyncHttpClient(cg);
 
         String redirectTarget = "/bar/test";
         String destinationUrl = new URI(getTargetUrl()).resolve(redirectTarget).toString();
@@ -176,7 +175,7 @@ public abstract class Relative302Test extends AbstractBasicTest {
         isSet.getAndSet(false);
 
         AsyncHttpClientConfig cg = new AsyncHttpClientConfig.Builder().setFollowRedirects(true).build();
-        AsyncHttpClient c = new AsyncHttpClient(cg);
+        AsyncHttpClient c = getAsyncHttpClient(cg);
 
         String redirectTarget = "bar/test1";
         String destinationUrl = new URI(getTargetUrl()).resolve(redirectTarget).toString();

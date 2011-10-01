@@ -47,7 +47,7 @@ public abstract class PutLargeFileTest
         largeFile = createTempFile(bytes, (int) repeats);
         int timeout = (int) (largeFile.length() / 1000);
         AsyncHttpClientConfig config = new AsyncHttpClientConfig.Builder().setConnectionTimeoutInMs(timeout).build();
-        AsyncHttpClient client = new AsyncHttpClient(config);
+        AsyncHttpClient client = getAsyncHttpClient(config);
         BoundRequestBuilder rb = client.preparePut(getTargetUrl());
 
         rb.setBody(largeFile);
@@ -66,7 +66,7 @@ public abstract class PutLargeFileTest
         largeFile = createTempFile(bytes, (int) repeats);
 
         AsyncHttpClientConfig config = new AsyncHttpClientConfig.Builder().build();
-        AsyncHttpClient client = new AsyncHttpClient(config);
+        AsyncHttpClient client = getAsyncHttpClient(config);
         BoundRequestBuilder rb = client.preparePut(getTargetUrl());
 
         rb.setBody(largeFile);
@@ -116,7 +116,9 @@ public abstract class PutLargeFileTest
     public static File createTempFile(byte[] pattern, int repeat)
             throws IOException {
         TMP.mkdirs();
+        TMP.deleteOnExit();
         File tmpFile = File.createTempFile("tmpfile-", ".data", TMP);
+        tmpFile.deleteOnExit();
         write(pattern, repeat, tmpFile);
 
         return tmpFile;

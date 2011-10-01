@@ -34,23 +34,20 @@ import com.ning.http.client.filter.FilterContext;
 import com.ning.http.client.filter.FilterException;
 import com.ning.http.client.filter.IOExceptionFilter;
 import com.ning.http.client.filter.ResponseFilter;
+import com.ning.http.client.listener.TransferCompletionHandler;
 import com.ning.http.multipart.MultipartRequestEntity;
 import com.ning.http.util.AsyncHttpProviderUtils;
 import com.ning.http.util.AuthenticatorUtils;
 import com.ning.http.util.ProxyUtils;
 import com.ning.http.util.SslUtils;
 import com.ning.http.util.UTF8UrlEncoder;
-import org.jboss.netty.buffer.ChannelBuffer;
-import org.jboss.netty.buffer.ChannelBuffers;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import javax.naming.AuthenticationException;
-import javax.net.ssl.HostnameVerifier;
 import javax.net.ssl.HttpsURLConnection;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLHandshakeException;
-import javax.net.ssl.SSLSession;
 import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.FileInputStream;
@@ -82,7 +79,7 @@ import java.util.zip.GZIPInputStream;
 
 import static com.ning.http.util.AsyncHttpProviderUtils.DEFAULT_CHARSET;
 
-public class JDKAsyncHttpProvider implements AsyncHttpProvider<HttpURLConnection> {
+public class JDKAsyncHttpProvider implements AsyncHttpProvider {
     private final static Logger logger = LoggerFactory.getLogger(JDKAsyncHttpProvider.class);
 
     private final static String NTLM_DOMAIN = "http.auth.ntlm.domain";
@@ -111,7 +108,7 @@ public class JDKAsyncHttpProvider implements AsyncHttpProvider<HttpURLConnection
     }
 
     private void configure(JDKAsyncHttpProviderConfig config) {
-        for(Map.Entry<String,String> e: config.propertiesSet()) {
+        for (Map.Entry<String, String> e : config.propertiesSet()) {
             System.setProperty(e.getKey(), e.getValue());
         }
 
@@ -119,9 +116,11 @@ public class JDKAsyncHttpProvider implements AsyncHttpProvider<HttpURLConnection
             bufferResponseInMemory = true;
         }
     }
+
     public <T> ListenableFuture<T> execute(Request request, AsyncHandler<T> handler) throws IOException {
         return execute(request, handler, null);
     }
+
     public <T> ListenableFuture<T> execute(Request request, AsyncHandler<T> handler, ListenableFuture<?> future) throws IOException {
         if (isClose.get()) {
             throw new IOException("Closed");
@@ -132,8 +131,8 @@ public class JDKAsyncHttpProvider implements AsyncHttpProvider<HttpURLConnection
         }
 
         ProxyServer proxyServer = request.getProxyServer() != null ? request.getProxyServer() : config.getProxyServer();
-        Realm realm =  request.getRealm() != null ?  request.getRealm() : config.getRealm();
-        boolean avoidProxy = ProxyUtils.avoidProxy( proxyServer, request );
+        Realm realm = request.getRealm() != null ? request.getRealm() : config.getRealm();
+        boolean avoidProxy = ProxyUtils.avoidProxy(proxyServer, request);
         Proxy proxy = null;
         if (!avoidProxy && (proxyServer != null || realm != null)) {
             try {
@@ -145,24 +144,28 @@ public class JDKAsyncHttpProvider implements AsyncHttpProvider<HttpURLConnection
 
         HttpURLConnection urlConnection = createUrlConnection(request);
 
+        PerRequestConfig conf = request.getPerRequestConfig();
+        int requestTimeout = (conf != null && conf.getRequestTimeoutInMs() != 0) ?
+                conf.getRequestTimeoutInMs() : config.getRequestTimeoutInMs();
+
         JDKDelegateFuture delegate = null;
         if (future != null) {
-            delegate = new JDKDelegateFuture(handler, config.getRequestTimeoutInMs(), future, urlConnection);
+            delegate = new JDKDelegateFuture(handler, requestTimeout, future, urlConnection);
         }
-        
-        JDKFuture f = delegate == null ? new JDKFuture<T>(handler, config.getRequestTimeoutInMs(), urlConnection) : delegate;
+
+        JDKFuture f = delegate == null ? new JDKFuture<T>(handler, requestTimeout, urlConnection) : delegate;
         f.touch();
 
         f.setInnerFuture(config.executorService().submit(new AsyncHttpUrlConnection(urlConnection, request, handler, f)));
         maxConnections.incrementAndGet();
-        
+
         return f;
     }
 
     private HttpURLConnection createUrlConnection(Request request) throws IOException {
         ProxyServer proxyServer = request.getProxyServer() != null ? request.getProxyServer() : config.getProxyServer();
-        Realm realm =  request.getRealm() != null ?  request.getRealm() : config.getRealm();
-        boolean avoidProxy = ProxyUtils.avoidProxy( proxyServer, request );
+        Realm realm = request.getRealm() != null ? request.getRealm() : config.getRealm();
+        boolean avoidProxy = ProxyUtils.avoidProxy(proxyServer, request);
         Proxy proxy = null;
         if (!avoidProxy && proxyServer != null || realm != null) {
             try {
@@ -174,7 +177,8 @@ public class JDKAsyncHttpProvider implements AsyncHttpProvider<HttpURLConnection
 
         HttpURLConnection urlConnection = null;
         if (proxy == null) {
-            urlConnection = (HttpURLConnection) AsyncHttpProviderUtils.createUri(request.getUrl()).toURL().openConnection();
+            urlConnection =
+                    (HttpURLConnection) AsyncHttpProviderUtils.createUri(request.getUrl()).toURL().openConnection(Proxy.NO_PROXY);
         } else {
             urlConnection = (HttpURLConnection) AsyncHttpProviderUtils.createUri(request.getUrl()).toURL().openConnection(proxy);
         }
@@ -192,12 +196,7 @@ public class JDKAsyncHttpProvider implements AsyncHttpProvider<HttpURLConnection
                 }
             }
             secure.setSSLSocketFactory(sslContext.getSocketFactory());
-            secure.setHostnameVerifier(new HostnameVerifier() {
-
-                public boolean verify(String s, SSLSession sslSession) {
-                    return true;
-                }
-            });
+            secure.setHostnameVerifier(config.getHostnameVerifier());
         }
         return urlConnection;
     }
@@ -244,6 +243,10 @@ public class JDKAsyncHttpProvider implements AsyncHttpProvider<HttpURLConnection
                 configure(uri, urlConnection, request);
                 urlConnection.connect();
 
+                if (TransferCompletionHandler.class.isAssignableFrom(asyncHandler.getClass())) {
+                    throw new IllegalStateException(TransferCompletionHandler.class.getName() + "not supported by this provider");
+                }
+
                 int statusCode = urlConnection.getResponseCode();
 
                 logger.debug("\n\nRequest {}\n\nResponse {}\n", request, statusCode);
@@ -288,8 +291,8 @@ public class JDKAsyncHttpProvider implements AsyncHttpProvider<HttpURLConnection
                     }
                 }
 
-                Realm realm =  request.getRealm() != null ?  request.getRealm() : config.getRealm();
-                if (statusCode == 401 && !isAuth.getAndSet(true) && realm != null ) {
+                Realm realm = request.getRealm() != null ? request.getRealm() : config.getRealm();
+                if (statusCode == 401 && !isAuth.getAndSet(true) && realm != null) {
                     String wwwAuth = urlConnection.getHeaderField("WWW-Authenticate");
 
                     logger.debug("Sending authentication to {}", request.getUrl());
@@ -332,7 +335,7 @@ public class JDKAsyncHttpProvider implements AsyncHttpProvider<HttpURLConnection
                     if (byteToRead > 0) {
                         int minBytes = Math.min(8192, byteToRead);
                         byte[] bytes = new byte[minBytes];
-                        int leftBytes = minBytes < 8192 ? 0 : byteToRead;
+                        int leftBytes = minBytes < 8192 ? minBytes : byteToRead;
                         int read = 0;
                         while (leftBytes > -1) {
 
@@ -345,14 +348,13 @@ public class JDKAsyncHttpProvider implements AsyncHttpProvider<HttpURLConnection
 
                             byte[] b = new byte[read];
                             System.arraycopy(bytes, 0, b, 0, read);
-                            asyncHandler.onBodyPartReceived(new ResponseBodyPart(uri, b, JDKAsyncHttpProvider.this));
-
                             leftBytes -= read;
+                            asyncHandler.onBodyPartReceived(new ResponseBodyPart(uri, b, JDKAsyncHttpProvider.this, leftBytes > -1));
                         }
                     }
 
                     if (request.getMethod().equalsIgnoreCase("HEAD")) {
-                        asyncHandler.onBodyPartReceived(new ResponseBodyPart(uri, "".getBytes(), JDKAsyncHttpProvider.this));
+                        asyncHandler.onBodyPartReceived(new ResponseBodyPart(uri, "".getBytes(), JDKAsyncHttpProvider.this, true));
                     }
                 }
 
@@ -388,7 +390,7 @@ public class JDKAsyncHttpProvider implements AsyncHttpProvider<HttpURLConnection
 
                     if (fc.replayRequest()) {
                         request = fc.getRequest();
-                        urlConnection = createUrlConnection(request);                        
+                        urlConnection = createUrlConnection(request);
                         return call();
                     }
                 }
@@ -465,7 +467,7 @@ public class JDKAsyncHttpProvider implements AsyncHttpProvider<HttpURLConnection
                 host = request.getVirtualHost();
             }
 
-            if (uri.getPort() == -1) {
+            if (uri.getPort() == -1 || request.getVirtualHost() != null) {
                 urlConnection.setRequestProperty("Host", host);
             } else {
                 urlConnection.setRequestProperty("Host", host + ":" + uri.getPort());
@@ -495,7 +497,7 @@ public class JDKAsyncHttpProvider implements AsyncHttpProvider<HttpURLConnection
             String ka = config.getAllowPoolingConnection() ? "keep-alive" : "close";
             urlConnection.setRequestProperty("Connection", ka);
             ProxyServer proxyServer = request.getProxyServer() != null ? request.getProxyServer() : config.getProxyServer();
-            boolean avoidProxy = ProxyUtils.avoidProxy( proxyServer, uri.getHost() );
+            boolean avoidProxy = ProxyUtils.avoidProxy(proxyServer, uri.getHost());
             if (!avoidProxy) {
                 urlConnection.setRequestProperty("Proxy-Connection", ka);
                 if (proxyServer.getPrincipal() != null) {
@@ -508,8 +510,8 @@ public class JDKAsyncHttpProvider implements AsyncHttpProvider<HttpURLConnection
                 }
             }
 
-            Realm realm =  request.getRealm() != null ?  request.getRealm() : config.getRealm();
-            if (realm != null && realm.getUsePreemptiveAuth() ) {
+            Realm realm = request.getRealm() != null ? request.getRealm() : config.getRealm();
+            if (realm != null && realm.getUsePreemptiveAuth()) {
                 switch (realm.getAuthScheme()) {
                     case BASIC:
                         urlConnection.setRequestProperty("Authorization",
@@ -536,13 +538,15 @@ public class JDKAsyncHttpProvider implements AsyncHttpProvider<HttpURLConnection
                 }
 
             }
-            
+
             // Add default accept headers.
             if (request.getHeaders().getFirstValue("Accept") == null) {
                 urlConnection.setRequestProperty("Accept", "*/*");
             }
 
-            if (request.getHeaders().getFirstValue("User-Agent") == null && config.getUserAgent() != null) {
+            if (request.getHeaders().getFirstValue("User-Agent") != null) {
+                urlConnection.setRequestProperty("User-Agent", request.getHeaders().getFirstValue("User-Agent"));
+            } else if (config.getUserAgent() != null) {
                 urlConnection.setRequestProperty("User-Agent", config.getUserAgent());
             } else {
                 urlConnection.setRequestProperty("User-Agent", AsyncHttpProviderUtils.constructUserAgent(JDKAsyncHttpProvider.class));
@@ -620,7 +624,6 @@ public class JDKAsyncHttpProvider implements AsyncHttpProvider<HttpURLConnection
                     urlConnection.setRequestProperty("Content-Type", mre.getContentType());
                     urlConnection.setRequestProperty("Content-Length", String.valueOf(mre.getContentLength()));
 
-                    ChannelBuffer b = ChannelBuffers.dynamicBuffer(lenght);
                     mre.writeRequest(urlConnection.getOutputStream());
                 } else if (request.getEntityWriter() != null) {
                     int lenght = (int) request.getContentLength();
@@ -641,7 +644,7 @@ public class JDKAsyncHttpProvider implements AsyncHttpProvider<HttpURLConnection
                     FileInputStream fis = new FileInputStream(file);
                     try {
                         OutputStream os = urlConnection.getOutputStream();
-                        for (final byte[] buffer = new byte[1024 * 16];;) {
+                        for (final byte[] buffer = new byte[1024 * 16]; ; ) {
                             int read = fis.read(buffer);
                             if (read < 0) {
                                 break;
@@ -663,12 +666,12 @@ public class JDKAsyncHttpProvider implements AsyncHttpProvider<HttpURLConnection
                             urlConnection.setFixedLengthStreamingMode(length);
                         }
                         OutputStream os = urlConnection.getOutputStream();
-                        for (ByteBuffer buffer = ByteBuffer.allocate( 1024 * 8 );;) {
+                        for (ByteBuffer buffer = ByteBuffer.allocate(1024 * 8); ; ) {
                             buffer.clear();
                             if (body.read(buffer) < 0) {
                                 break;
                             }
-                            os.write( buffer.array(), buffer.arrayOffset(), buffer.position() );
+                            os.write(buffer.array(), buffer.arrayOffset(), buffer.position());
                         }
                     } finally {
                         try {

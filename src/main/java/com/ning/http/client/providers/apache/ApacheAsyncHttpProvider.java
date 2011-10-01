@@ -38,6 +38,7 @@ import com.ning.http.client.filter.FilterContext;
 import com.ning.http.client.filter.FilterException;
 import com.ning.http.client.filter.IOExceptionFilter;
 import com.ning.http.client.filter.ResponseFilter;
+import com.ning.http.client.listener.TransferCompletionHandler;
 import com.ning.http.client.resumable.ResumableAsyncHandler;
 import com.ning.http.util.AsyncHttpProviderUtils;
 import com.ning.http.util.ProxyUtils;
@@ -118,7 +119,7 @@ import static com.ning.http.util.AsyncHttpProviderUtils.DEFAULT_CHARSET;
 /**
  * An {@link com.ning.http.client.AsyncHttpProvider} for Apache Http Client 3.1
  */
-public class ApacheAsyncHttpProvider implements AsyncHttpProvider<HttpClient> {
+public class ApacheAsyncHttpProvider implements AsyncHttpProvider {
     private final static Logger logger = LoggerFactory.getLogger(ApacheAsyncHttpProvider.class);
 
     private final AsyncHttpClientConfig config;
@@ -304,7 +305,7 @@ public class ApacheAsyncHttpProvider implements AsyncHttpProvider<HttpClient> {
                         // This is totally sub optimal
                         byte[] bytes = new byte[length];
                         ByteBuffer buffer = ByteBuffer.wrap(bytes);
-                        for (; ;) {
+                        for (; ; ) {
                             buffer.clear();
                             if (body.read(buffer) < 0) {
                                 break;
@@ -339,7 +340,7 @@ public class ApacheAsyncHttpProvider implements AsyncHttpProvider<HttpClient> {
         }
 
         ProxyServer proxyServer = request.getProxyServer() != null ? request.getProxyServer() : config.getProxyServer();
-        boolean avoidProxy = ProxyUtils.avoidProxy( proxyServer, request ); 
+        boolean avoidProxy = ProxyUtils.avoidProxy(proxyServer, request);
         if (!avoidProxy) {
 
             if (proxyServer.getPrincipal() != null) {
@@ -368,7 +369,9 @@ public class ApacheAsyncHttpProvider implements AsyncHttpProvider<HttpClient> {
             }
         }
 
-        if (request.getHeaders().getFirstValue("User-Agent") == null && config.getUserAgent() != null) {
+        if (request.getHeaders().getFirstValue("User-Agent") != null) {
+            method.setRequestHeader("User-Agent", request.getHeaders().getFirstValue("User-Agent"));
+        } else if (config.getUserAgent() != null) {
             method.setRequestHeader("User-Agent", config.getUserAgent());
         } else {
             method.setRequestHeader("User-Agent", AsyncHttpProviderUtils.constructUserAgent(ApacheAsyncHttpProvider.class));
@@ -392,7 +395,13 @@ public class ApacheAsyncHttpProvider implements AsyncHttpProvider<HttpClient> {
         }
 
         if (request.getVirtualHost() != null) {
-            method.getParams().setVirtualHost(request.getVirtualHost());
+
+            String vs = request.getVirtualHost();
+            int index = vs.indexOf(":");
+            if (index > 0) {
+                vs = vs.substring(0, index);
+            }
+            method.getParams().setVirtualHost(vs);
         }
 
         return method;
@@ -446,6 +455,10 @@ public class ApacheAsyncHttpProvider implements AsyncHttpProvider<HttpClient> {
                     Future scheduledFuture = config.reaper().scheduleAtFixedRate(reaperFuture, delay, 500, TimeUnit.MILLISECONDS);
                     reaperFuture.setScheduledFuture(scheduledFuture);
                     future.setReaperFuture(reaperFuture);
+                }
+
+                if (TransferCompletionHandler.class.isAssignableFrom(asyncHandler.getClass())) {
+                    throw new IllegalStateException(TransferCompletionHandler.class.getName() + "not supported by this provider");
                 }
 
                 int statusCode = 200;
@@ -530,7 +543,7 @@ public class ApacheAsyncHttpProvider implements AsyncHttpProvider<HttpClient> {
                         if (byteToRead > 0) {
                             int minBytes = Math.min(8192, byteToRead);
                             byte[] bytes = new byte[minBytes];
-                            int leftBytes = minBytes < 8192 ? 0 : byteToRead;
+                            int leftBytes = minBytes < 8192 ? minBytes : byteToRead;
                             int read = 0;
                             while (leftBytes > -1) {
 
@@ -549,15 +562,16 @@ public class ApacheAsyncHttpProvider implements AsyncHttpProvider<HttpClient> {
 
                                 byte[] b = new byte[read];
                                 System.arraycopy(bytes, 0, b, 0, read);
-                                asyncHandler.onBodyPartReceived(new ApacheResponseBodyPart(uri, b, ApacheAsyncHttpProvider.this));
-
                                 leftBytes -= read;
+
+                                asyncHandler.onBodyPartReceived(new ApacheResponseBodyPart(uri, b, ApacheAsyncHttpProvider.this, leftBytes > -1));
+
                             }
                         }
                     }
 
                     if (method.getName().equalsIgnoreCase("HEAD")) {
-                        asyncHandler.onBodyPartReceived(new ApacheResponseBodyPart(uri, "".getBytes(), ApacheAsyncHttpProvider.this));
+                        asyncHandler.onBodyPartReceived(new ApacheResponseBodyPart(uri, "".getBytes(), ApacheAsyncHttpProvider.this, true));
                     }
                 }
 
@@ -577,7 +591,7 @@ public class ApacheAsyncHttpProvider implements AsyncHttpProvider<HttpClient> {
 
                 if (IOException.class.isAssignableFrom(t.getClass()) && config.getIOExceptionFilters().size() > 0) {
                     FilterContext fc = new FilterContext.FilterContextBuilder().asyncHandler(asyncHandler)
-                        .request(future.getRequest()).ioException(IOException.class.cast(t)).build();
+                            .request(future.getRequest()).ioException(IOException.class.cast(t)).build();
 
                     try {
                         fc = handleIoException(fc);

@@ -24,6 +24,8 @@ import javax.servlet.http.HttpServletResponse;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.util.Enumeration;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -55,8 +57,12 @@ public abstract class ByteBufferCapacityTest extends AbstractBasicTest {
             }
             byte[] bytes = new byte[size];
             if (bytes.length > 0) {
-                httpRequest.getInputStream().read(bytes);
-                httpResponse.getOutputStream().write(bytes);
+                final InputStream in = httpRequest.getInputStream();
+                final OutputStream out = httpResponse.getOutputStream();
+                int read;
+                while ((read = in.read(bytes)) != -1) {
+                    out.write(bytes, 0, read);
+                }
             }
 
             httpResponse.setStatus(200);
@@ -72,7 +78,7 @@ public abstract class ByteBufferCapacityTest extends AbstractBasicTest {
 
     @Test(groups = {"standalone", "default_provider"})
     public void basicByteBufferTest() throws Throwable {
-        AsyncHttpClient c = new AsyncHttpClient();
+        AsyncHttpClient c = getAsyncHttpClient(null);
         final AtomicBoolean completed = new AtomicBoolean(false);
 
         byte[] bytes = "RatherLargeFileRatherLargeFileRatherLargeFileRatherLargeFile".getBytes("UTF-16");
@@ -93,8 +99,9 @@ public abstract class ByteBufferCapacityTest extends AbstractBasicTest {
 
             assertNotNull(response);
             assertEquals(response.getStatusCode(), 200);
-            assertEquals(response.getResponseBody().length(), largeFile.length());
             assertEquals(byteReceived.get(), largeFile.length());
+            assertEquals(response.getResponseBody().length(), largeFile.length());
+
         } catch (IOException ex) {
             fail("Should have timed out");
         }
@@ -108,6 +115,7 @@ public abstract class ByteBufferCapacityTest extends AbstractBasicTest {
     public static File createTempFile(byte[] pattern, int repeat)
             throws IOException {
         TMP.mkdirs();
+        TMP.deleteOnExit();
         File tmpFile = File.createTempFile("tmpfile-", ".data", TMP);
         write(pattern, repeat, tmpFile);
 

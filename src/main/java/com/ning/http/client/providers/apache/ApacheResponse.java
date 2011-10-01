@@ -23,7 +23,6 @@ import com.ning.http.util.AsyncHttpProviderUtils;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.UnsupportedEncodingException;
 import java.net.MalformedURLException;
 import java.net.URI;
 import java.util.ArrayList;
@@ -34,7 +33,7 @@ import java.util.Map;
 
 
 public class ApacheResponse implements Response {
-    private final static String DEFAULT_CHARSET = "ISO-8859-1";    
+    private final static String DEFAULT_CHARSET = "ISO-8859-1";
     private final static String HEADERS_NOT_COMPUTED = "Response's headers hasn't been computed by your AsyncHandler.";
 
     private final URI uri;
@@ -67,7 +66,11 @@ public class ApacheResponse implements Response {
     }
 
     /* @Override */
+    public byte[] getResponseBodyAsBytes() throws IOException {
+        return AsyncHttpProviderUtils.contentToByte(bodyParts);
+    }
 
+    /* @Override */
     public String getResponseBody() throws IOException {
         return getResponseBody(DEFAULT_CHARSET);
     }
@@ -82,24 +85,15 @@ public class ApacheResponse implements Response {
             charset = DEFAULT_CHARSET;
         }
 
-        return contentToString(charset);
-    }
-
-    String contentToString(String charset) throws UnsupportedEncodingException {
-        StringBuilder b = new StringBuilder();
-        for (HttpResponseBodyPart bp : bodyParts) {
-            b.append(new String(bp.getBodyPartBytes(), charset));
-        }
-        return b.toString();
+        return AsyncHttpProviderUtils.contentToString(bodyParts, charset);
     }
 
     /* @Override */
-
     public InputStream getResponseBodyAsStream() throws IOException {
         if (bodyParts.size() > 0) {
             return new ByteArrayInputStream(bodyParts.toArray(new HttpResponseBodyPart[bodyParts.size()])[0].getBodyPartBytes());
         } else {
-            return new ByteArrayInputStream("".getBytes());            
+            return new ByteArrayInputStream("".getBytes());
         }
     }
 
@@ -110,7 +104,7 @@ public class ApacheResponse implements Response {
     }
 
     /* @Override */
-    
+
     public String getResponseBodyExcerpt(int maxLength, String charset) throws IOException {
         String contentType = getContentType();
         if (contentType != null && charset == null) {
@@ -120,8 +114,8 @@ public class ApacheResponse implements Response {
         if (charset == null) {
             charset = DEFAULT_CHARSET;
         }
-        
-        String response = contentToString(charset);
+
+        String response = AsyncHttpProviderUtils.contentToString(bodyParts, charset);
         return response.length() <= maxLength ? response : response.substring(0, maxLength);
     }
 

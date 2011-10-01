@@ -25,12 +25,17 @@ import java.util.Map;
  * Builder for a {@link Request}.
  */
 public class RequestBuilder extends RequestBuilderBase<RequestBuilder> {
+
     public RequestBuilder() {
-        super(RequestBuilder.class, "GET");
+        super(RequestBuilder.class, "GET", false);
     }
 
     public RequestBuilder(String method) {
-        super(RequestBuilder.class, method);
+        super(RequestBuilder.class, method, false);
+    }
+
+    public RequestBuilder(String method, boolean useRawUrl) {
+        super(RequestBuilder.class, method, useRawUrl);
     }
 
     public RequestBuilder(Request prototype) {
@@ -40,7 +45,7 @@ public class RequestBuilder extends RequestBuilderBase<RequestBuilder> {
     // Note: For now we keep the delegates in place even though they are not needed
     //       since otherwise Clojure (and maybe other languages) won't be able to
     //       access these methods - see Clojure tickets 126 and 259
-    
+
     @Override
     public RequestBuilder addBodyPart(Part part) throws IllegalArgumentException {
         return super.addBodyPart(part);
@@ -67,6 +72,11 @@ public class RequestBuilder extends RequestBuilderBase<RequestBuilder> {
     }
 
     @Override
+    public RequestBuilder setQueryParameters(FluentStringsMap parameters) {
+        return super.setQueryParameters(parameters);
+    }
+
+    @Override
     public Request build() {
         return super.build();
     }
@@ -88,12 +98,13 @@ public class RequestBuilder extends RequestBuilderBase<RequestBuilder> {
 
     /**
      * Deprecated - Use setBody(new InputStreamBodyGenerator(inputStream)).
+     *
      * @param stream - An {@link InputStream}
      * @return a {@link RequestBuilder}
      * @throws IllegalArgumentException
-     * @deprecated {@link #setBody(BodyGenerator)} setBody(new InputStreamBodyGenerator(inputStream))
      * @see #setBody(BodyGenerator) InputStreamBodyGenerator(inputStream)
      * @see com.ning.http.client.generators.InputStreamBodyGenerator
+     * @deprecated {@link #setBody(BodyGenerator)} setBody(new InputStreamBodyGenerator(inputStream))
      */
     @Override
     @Deprecated
@@ -154,5 +165,10 @@ public class RequestBuilder extends RequestBuilderBase<RequestBuilder> {
     @Override
     public RequestBuilder setFollowRedirects(boolean followRedirects) {
         return super.setFollowRedirects(followRedirects);
+    }
+
+    @Override
+    public RequestBuilder addOrReplaceCookie(Cookie c) {
+        return super.addOrReplaceCookie(c);
     }
 }

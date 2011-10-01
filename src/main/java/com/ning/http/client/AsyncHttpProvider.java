@@ -17,13 +17,12 @@ package com.ning.http.client;
 
 import java.io.IOException;
 import java.util.Collection;
-import java.util.concurrent.Future;
 
 /**
  * Interface to be used when implementing custom asynchronous I/O HTTP client.
  * By default, the {@link com.ning.http.client.providers.netty.NettyAsyncHttpProvider} is used.
  */
-public interface AsyncHttpProvider<A> {
+public interface AsyncHttpProvider {
 
     /**
      * Execute the request and invoke the {@link AsyncHandler} when the response arrive.
@@ -41,9 +40,10 @@ public interface AsyncHttpProvider<A> {
 
     /**
      * Prepare a {@link Response}
-     * @param status  {@link HttpResponseStatus}
+     *
+     * @param status    {@link HttpResponseStatus}
      * @param headers   {@link HttpResponseHeaders}
-     * @param bodyParts  list of {@link HttpResponseBodyPart}
+     * @param bodyParts list of {@link HttpResponseBodyPart}
      * @return a {@link Response}
      */
     public Response prepareResponse(HttpResponseStatus status,
